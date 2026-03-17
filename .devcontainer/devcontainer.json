@@ -7,7 +7,15 @@
     "vscode": {
       "extensions": [
         "ms-python.python",
-        "dbaeumer.vscode-eslint"
+        "ms-python.debugpy",
+        "ms-python.vscode-pylance",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "stylelint.vscode-stylelint",
+        "firsttris.vscode-jest-runner",
+        "mikestead.dotenv",
+        "naumovs.color-highlight"
       ]
     }
   },
