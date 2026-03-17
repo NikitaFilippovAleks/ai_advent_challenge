@@ -2,3 +2,4 @@ fastapi
 uvicorn[standard]
 gigachat
 pydantic-settings
+ruff

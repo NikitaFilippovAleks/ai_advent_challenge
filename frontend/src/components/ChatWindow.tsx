@@ -4,7 +4,13 @@ import { sendMessage } from "../api/chat";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 
-function ChatWindow() {
+interface Props {
+  title: string;
+  style?: "normal" | "custom";
+  model?: string;
+}
+
+function ChatWindow({ title, style = "normal", model }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -15,7 +21,7 @@ function ChatWindow() {
     setIsLoading(true);
 
     try {
-      const response = await sendMessage({ messages: updated });
+      const response = await sendMessage({ messages: updated, style, model });
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: response.content },
@@ -32,6 +38,7 @@ function ChatWindow() {
 
   return (
     <div className="chat-window">
+      <div className="chat-title">{title}</div>
       <MessageList messages={messages} isLoading={isLoading} />
       <MessageInput onSend={handleSend} disabled={isLoading} />
     </div>

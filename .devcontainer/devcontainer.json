@@ -15,7 +15,8 @@
         "stylelint.vscode-stylelint",
         "firsttris.vscode-jest-runner",
         "mikestead.dotenv",
-        "naumovs.color-highlight"
+        "naumovs.color-highlight",
+        "charliermarsh.ruff"
       ]
     }
   },
