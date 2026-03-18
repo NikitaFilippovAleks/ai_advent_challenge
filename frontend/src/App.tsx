@@ -40,8 +40,10 @@ function App() {
         </div>
       </header>
       <div className="app-content">
-        <ChatWindow title="Обычный чат" style="normal" model={selectedModel} />
-        <ChatWindow title="Кастомный чат" style="custom" model={selectedModel} />
+        <ChatWindow title="Чат 1" style="normal" model={selectedModel} />
+        <ChatWindow title="Чат 2" style="normal" model={selectedModel} />
+        <ChatWindow title="Чат 3" style="normal" model={selectedModel} />
+        <ChatWindow title="Чат 4" style="normal" model={selectedModel} />
       </div>
     </div>
   );
