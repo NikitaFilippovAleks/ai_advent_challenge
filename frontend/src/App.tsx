@@ -40,10 +40,9 @@ function App() {
         </div>
       </header>
       <div className="app-content">
-        <ChatWindow title="Чат 1" style="normal" model={selectedModel} />
-        <ChatWindow title="Чат 2" style="normal" model={selectedModel} />
-        <ChatWindow title="Чат 3" style="normal" model={selectedModel} />
-        <ChatWindow title="Чат 4" style="normal" model={selectedModel} />
+        <ChatWindow title="Чат 1" style="normal" model={selectedModel} temperature={0} />
+        <ChatWindow title="Чат 2" style="normal" model={selectedModel} temperature={0.7} />
+        <ChatWindow title="Чат 3" style="normal" model={selectedModel} temperature={1.2} />
       </div>
     </div>
   );

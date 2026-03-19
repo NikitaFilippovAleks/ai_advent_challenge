@@ -8,9 +8,10 @@ interface Props {
   title: string;
   style?: "normal" | "custom";
   model?: string;
+  temperature?: number;
 }
 
-function ChatWindow({ title, style = "normal", model }: Props) {
+function ChatWindow({ title, style = "normal", model, temperature }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -21,7 +22,7 @@ function ChatWindow({ title, style = "normal", model }: Props) {
     setIsLoading(true);
 
     try {
-      const response = await sendMessage({ messages: updated, style, model });
+      const response = await sendMessage({ messages: updated, style, model, temperature });
       setMessages((prev) => [
         ...prev,
         { role: "assistant", content: response.content },
@@ -38,7 +39,7 @@ function ChatWindow({ title, style = "normal", model }: Props) {
 
   return (
     <div className="chat-window">
-      <div className="chat-title">{title}</div>
+      <div className="chat-title">{title} (t={temperature})</div>
       <MessageList messages={messages} isLoading={isLoading} />
       <MessageInput onSend={handleSend} disabled={isLoading} />
     </div>

@@ -24,7 +24,7 @@ async def get_available_models() -> list[dict]:
 
 
 async def get_chat_response(
-    messages: list[dict], style: str = "normal", model: str | None = None
+    messages: list[dict], style: str = "normal", model: str | None = None, temperature: float | None = None
 ) -> str:
     """Отправляет сообщения в GigaChat и возвращает ответ."""
     giga_messages = []
@@ -50,6 +50,7 @@ async def get_chat_response(
         messages=giga_messages,
         model=model or settings.gigachat_model,
         max_tokens=max_tokens,
+        temperature=temperature,
         additional_fields={"stop": ["огурец"]} if style == "custom" else None,
     )
 

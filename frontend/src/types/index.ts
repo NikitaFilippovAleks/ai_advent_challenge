@@ -7,6 +7,7 @@ export interface ChatRequest {
   messages: Message[];
   style?: "normal" | "custom";
   model?: string;
+  temperature?: number;
 }
 
 export interface ChatResponse {
