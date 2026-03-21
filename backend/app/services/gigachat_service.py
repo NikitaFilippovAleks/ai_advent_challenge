@@ -60,4 +60,16 @@ async def get_chat_response(
     ) as client:
         response = await client.achat(payload)
 
-    return response.choices[0].message.content
+    # Извлекаем информацию об использовании токенов
+    usage = None
+    if response.usage:
+        usage = {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
+        }
+
+    return {
+        "content": response.choices[0].message.content,
+        "usage": usage,
+    }

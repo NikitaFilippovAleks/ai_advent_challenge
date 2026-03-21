@@ -24,7 +24,7 @@ body {
   padding: 12px 16px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   background: #4a76a8;
   color: white;
 }
@@ -32,27 +32,6 @@ body {
 .app-header h1 {
   font-size: 1.4rem;
   font-weight: 600;
-}
-
-.model-selector {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.9rem;
-}
-
-.model-selector label {
-  font-weight: 500;
-}
-
-.model-selector select {
-  padding: 6px 10px;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  background: white;
-  color: #333;
-  cursor: pointer;
 }
 
 .app-content {
@@ -75,14 +54,70 @@ body {
   border: 1px solid #e0e0e0;
 }
 
-.chat-title {
+/* Заголовок окна чата с выбором модели */
+.chat-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   padding: 8px 12px;
+  background: white;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.chat-title {
   font-weight: 600;
   font-size: 0.85rem;
   text-align: center;
-  background: white;
-  border-bottom: 1px solid #e0e0e0;
   color: #333;
+}
+
+.chat-controls {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  align-items: center;
+}
+
+.chat-model-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  background: #f8f9fa;
+  color: #333;
+  cursor: pointer;
+  outline: none;
+}
+
+.chat-model-select:focus {
+  border-color: #4a76a8;
+}
+
+.chat-temperature {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+.chat-temperature-input {
+  width: 48px;
+  padding: 4px 4px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  text-align: center;
+  outline: none;
+  background: #f8f9fa;
+}
+
+.chat-temperature-input:focus {
+  border-color: #4a76a8;
 }
 
 .message-list {
@@ -122,6 +157,18 @@ body {
 .message.bubble.loading {
   color: #888;
   font-style: italic;
+}
+
+/* Метаданные сообщения (токены, время ответа) */
+.message-meta {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+  padding-top: 3px;
+  border-top: 1px solid #f0f0f0;
+  font-size: 0.65rem;
+  color: #999;
 }
 
 .message-input {
