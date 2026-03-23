@@ -22,9 +22,7 @@ function App() {
         <h1>GigaChat</h1>
       </header>
       <div className="app-content">
-        <ChatWindow title="Чат 1" style="normal" models={models} />
-        <ChatWindow title="Чат 2" style="normal" models={models} />
-        <ChatWindow title="Чат 3" style="normal" models={models} />
+        <ChatWindow models={models} />
       </div>
     </div>
   );

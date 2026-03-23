@@ -1,66 +1,48 @@
-from gigachat import (
-    GigaChat,
-)
-from gigachat.models import (
-    Chat,
-    Messages,
-    MessagesRole,
-)
+from collections.abc import AsyncGenerator
 
-from app.config import (
-    settings,
-)
+from gigachat import GigaChat
+from gigachat.models import Chat, Messages, MessagesRole
+
+from app.config import settings
+
+
+def _create_client() -> GigaChat:
+    """Создаёт клиент GigaChat с настройками из конфига."""
+    return GigaChat(
+        credentials=settings.gigachat_credentials,
+        verify_ssl_certs=settings.gigachat_verify_ssl,
+    )
+
+
+def _build_messages(messages: list[dict]) -> list[Messages]:
+    """Преобразует список словарей в объекты Messages для SDK."""
+    return [
+        Messages(role=MessagesRole(m["role"]), content=m["content"])
+        for m in messages
+    ]
 
 
 async def get_available_models() -> list[dict]:
     """Возвращает список доступных моделей GigaChat."""
-    async with GigaChat(
-        credentials=settings.gigachat_credentials,
-        verify_ssl_certs=settings.gigachat_verify_ssl,
-    ) as client:
+    async with _create_client() as client:
         response = await client.aget_models()
-
     return [{"id": m.id_, "name": m.id_} for m in response.data]
 
 
 async def get_chat_response(
-    messages: list[dict], style: str = "normal", model: str | None = None, temperature: float | None = None
-) -> str:
-    """Отправляет сообщения в GigaChat и возвращает ответ."""
-    giga_messages = []
-
-    # Для кастомного стиля добавляем системный промпт
-    if style == "custom":
-        giga_messages.append(
-            Messages(
-                role=MessagesRole.SYSTEM,
-                content=(
-                    "Отвечай как маленькая девочка, которая вставляет в ответ весёлые словечки. "
-                    "Ответ должен быть не длиннее 200 символов. "
-                ),
-            )
-        )
-
-    giga_messages.extend(
-        Messages(role=MessagesRole(m["role"]), content=m["content"]) for m in messages
-    )
-
-    max_tokens = 200 if style == "custom" else 1024
+    messages: list[dict], model: str | None = None, temperature: float | None = None
+) -> dict:
+    """Отправляет сообщения в GigaChat и возвращает полный ответ."""
     payload = Chat(
-        messages=giga_messages,
+        messages=_build_messages(messages),
         model=model or settings.gigachat_model,
-        max_tokens=max_tokens,
+        max_tokens=1024,
         temperature=temperature,
-        additional_fields={"stop": ["огурец"]} if style == "custom" else None,
     )
 
-    async with GigaChat(
-        credentials=settings.gigachat_credentials,
-        verify_ssl_certs=settings.gigachat_verify_ssl,
-    ) as client:
+    async with _create_client() as client:
         response = await client.achat(payload)
 
-    # Извлекаем информацию об использовании токенов
     usage = None
     if response.usage:
         usage = {
@@ -73,3 +55,46 @@ async def get_chat_response(
         "content": response.choices[0].message.content,
         "usage": usage,
     }
+
+
+async def stream_chat_response(
+    messages: list[dict], model: str | None = None, temperature: float | None = None
+) -> AsyncGenerator[dict, None]:
+    """Стримит ответ от GigaChat чанками через async-генератор.
+
+    Генерирует события:
+    - {"type": "delta", "data": {"content": "...", "type": "content"}}
+    - {"type": "usage", "data": {"prompt_tokens": ..., ...}}
+    - {"type": "done", "data": {}}
+    """
+    payload = Chat(
+        messages=_build_messages(messages),
+        model=model or settings.gigachat_model,
+        max_tokens=1024,
+        temperature=temperature,
+        update_interval=0.1,
+    )
+
+    async with _create_client() as client:
+        async for chunk in client.astream(payload):
+            choice = chunk.choices[0]
+
+            # Отправляем текстовый чанк
+            if choice.delta.content:
+                yield {
+                    "type": "delta",
+                    "data": {"content": choice.delta.content, "type": "content"},
+                }
+
+            # В последнем чанке приходят usage и finish_reason
+            if choice.finish_reason:
+                if chunk.usage:
+                    yield {
+                        "type": "usage",
+                        "data": {
+                            "prompt_tokens": chunk.usage.prompt_tokens,
+                            "completion_tokens": chunk.usage.completion_tokens,
+                            "total_tokens": chunk.usage.total_tokens,
+                        },
+                    }
+                yield {"type": "done", "data": {}}

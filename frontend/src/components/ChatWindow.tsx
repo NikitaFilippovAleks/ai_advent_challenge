@@ -1,72 +1,166 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Message, ModelInfo } from "../types";
-import { sendMessage } from "../api/chat";
+import { streamMessage } from "../api/chat";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 
 interface Props {
-  title: string;
-  style?: "normal" | "custom";
   models: ModelInfo[];
 }
 
-function ChatWindow({ title, style = "normal", models }: Props) {
+function ChatWindow({ models }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.7);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Устанавливаем первую модель по умолчанию при загрузке списка
+  // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
+  const streamBufferRef = useRef("");
+  const rafIdRef = useRef<number | null>(null);
+  const startTimeRef = useRef(0);
+
   useEffect(() => {
     if (models.length > 0 && !selectedModel) {
       setSelectedModel(models[0].id);
     }
   }, [models, selectedModel]);
 
+  // Сброс rAF при размонтировании
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
+  }, []);
+
+  // Flush буфера в стейт — вызывается из rAF
+  const flushBuffer = useCallback(() => {
+    const content = streamBufferRef.current;
+    const elapsed = Date.now() - startTimeRef.current;
+    setMessages((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      updated[updated.length - 1] = {
+        ...last,
+        content,
+        responseTime: elapsed,
+      };
+      return updated;
+    });
+    rafIdRef.current = null;
+  }, []);
+
   const handleSend = async (text: string) => {
     const userMessage: Message = { role: "user", content: text };
-    const updated = [...messages, userMessage];
-    setMessages(updated);
+    const updatedMessages = [...messages, userMessage];
+
+    // Сбрасываем буфер
+    streamBufferRef.current = "";
+    startTimeRef.current = Date.now();
+
+    setMessages([...updatedMessages, { role: "assistant", content: "" }]);
     setIsLoading(true);
 
-    const startTime = Date.now();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    try {
-      const response = await sendMessage({
-        messages: updated,
-        style,
+    await streamMessage(
+      {
+        messages: updatedMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
         model: selectedModel,
         temperature,
-      });
-      const responseTime = Date.now() - startTime;
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: response.content,
-          usage: response.usage,
-          responseTime,
+      },
+      {
+        // Текст копится в буфер, стейт обновляется через rAF (макс 60 раз/сек)
+        onDelta: (content) => {
+          streamBufferRef.current += content;
+          if (rafIdRef.current === null) {
+            rafIdRef.current = requestAnimationFrame(flushBuffer);
+          }
         },
-      ]);
-    } catch (e) {
-      const responseTime = Date.now() - startTime;
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Ошибка: ${e}`,
-          responseTime,
+        onUsage: (usage) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            updated[updated.length - 1] = { ...last, usage };
+            return updated;
+          });
         },
-      ]);
-    } finally {
-      setIsLoading(false);
+        onDone: () => {
+          // Финальный flush — убеждаемся что весь текст отрисован
+          if (rafIdRef.current !== null) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = null;
+          }
+          const finalContent = streamBufferRef.current;
+          const elapsed = Date.now() - startTimeRef.current;
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            updated[updated.length - 1] = {
+              ...last,
+              content: finalContent,
+              responseTime: elapsed,
+            };
+            return updated;
+          });
+          setIsLoading(false);
+          abortRef.current = null;
+        },
+        onError: (error) => {
+          if (rafIdRef.current !== null) {
+            cancelAnimationFrame(rafIdRef.current);
+            rafIdRef.current = null;
+          }
+          const currentContent = streamBufferRef.current;
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            updated[updated.length - 1] = {
+              ...last,
+              content: currentContent || `Ошибка: ${error.message}`,
+            };
+            return updated;
+          });
+          setIsLoading(false);
+          abortRef.current = null;
+        },
+      },
+      controller.signal,
+    );
+  };
+
+  const handleStop = () => {
+    abortRef.current?.abort();
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
     }
+    // Финальный flush при остановке
+    const finalContent = streamBufferRef.current;
+    const elapsed = Date.now() - startTimeRef.current;
+    setMessages((prev) => {
+      const updated = [...prev];
+      const last = updated[updated.length - 1];
+      updated[updated.length - 1] = {
+        ...last,
+        content: finalContent,
+        responseTime: elapsed,
+      };
+      return updated;
+    });
+    setIsLoading(false);
+    abortRef.current = null;
   };
 
   return (
     <div className="chat-window">
       <div className="chat-header">
-        <span className="chat-title">{title}</span>
         <div className="chat-controls">
           <select
             className="chat-model-select"
@@ -85,7 +179,9 @@ function ChatWindow({ title, style = "normal", models }: Props) {
               type="number"
               className="chat-temperature-input"
               value={temperature}
-              onChange={(e) => setTemperature(parseFloat(e.target.value) || 0)}
+              onChange={(e) =>
+                setTemperature(parseFloat(e.target.value) || 0)
+              }
               min={0}
               max={2}
               step={0.1}
@@ -93,7 +189,11 @@ function ChatWindow({ title, style = "normal", models }: Props) {
           </div>
         </div>
       </div>
-      <MessageList messages={messages} isLoading={isLoading} />
+      <MessageList
+        messages={messages}
+        isLoading={isLoading}
+        onStop={handleStop}
+      />
       <MessageInput onSend={handleSend} disabled={isLoading} />
     </div>
   );

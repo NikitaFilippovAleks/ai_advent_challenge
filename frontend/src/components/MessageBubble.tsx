@@ -1,3 +1,4 @@
+import ReactMarkdown from "react-markdown";
 import { Message } from "../types";
 
 interface Props {
@@ -5,14 +6,19 @@ interface Props {
 }
 
 function MessageBubble({ message }: Props) {
-  // Проверяем наличие метаданных для отображения
   const hasMetadata =
     message.role === "assistant" &&
     (message.usage || message.responseTime !== undefined);
 
   return (
     <div className={`message bubble ${message.role}`}>
-      {message.content}
+      {message.role === "assistant" ? (
+        <div className="markdown-content">
+          <ReactMarkdown>{message.content}</ReactMarkdown>
+        </div>
+      ) : (
+        message.content
+      )}
       {hasMetadata && (
         <div className="message-meta">
           {message.responseTime !== undefined && (

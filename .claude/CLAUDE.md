@@ -33,17 +33,20 @@ npm run build     # TypeScript + Vite production сборка
 
 **Бэкенд (Python 3.12, FastAPI):**
 - `backend/app/main.py` — точка входа FastAPI, подключает роутеры
-- `backend/app/routers/chat.py` — единственный эндпоинт `POST /api/chat`
-- `backend/app/services/gigachat_service.py` — асинхронная интеграция с GigaChat SDK
+- `backend/app/routers/chat.py` — эндпоинты `POST /api/chat` и `POST /api/chat/stream` (SSE)
+- `backend/app/services/gigachat_service.py` — интеграция с GigaChat SDK (обычный и стриминг-ответ)
+- `backend/app/services/agent/` — каркас агентной архитектуры (types, tools, runner)
 - `backend/app/config.py` — pydantic-settings, загружает переменные из `.env`
 
 **Фронтенд (React 19, TypeScript, Vite):**
-- `frontend/src/App.tsx` — корневой компонент, рендерит ChatWindow
-- `frontend/src/components/ChatWindow.tsx` — главный компонент: стейт сообщений, отправка, автоскролл
-- `frontend/src/api/chat.ts` — API-клиент, отправляет POST /api/chat
-- `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ChatResponse
+- `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
+- `frontend/src/components/ChatWindow.tsx` — стейт сообщений, стриминг-отправка, AbortController
+- `frontend/src/api/chat.ts` — API-клиент: `streamMessage()` (SSE) и `sendMessage()` (обычный)
+- `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ToolCall, StreamDelta
 
 **Взаимодействие:** Фронтенд → Vite proxy (`/api` → `http://backend:8000`) → FastAPI → GigaChat SDK
+
+**Стриминг:** `POST /api/chat/stream` → SSE-события (delta, usage, done, error) → `fetch` + `ReadableStream`
 
 **Порты:** Backend 8000, Frontend 5173
 
@@ -51,8 +54,15 @@ npm run build     # TypeScript + Vite production сборка
 
 ```
 POST /api/chat
-Body: { messages: [{ role: "user"|"assistant", content: string }] }
-Response: { content: string }
+Body: { messages: [{ role, content }], model?, temperature? }
+Response: { content: string, usage?: { prompt_tokens, completion_tokens, total_tokens } }
+
+POST /api/chat/stream (SSE)
+Body: { messages: [{ role, content }], model?, temperature? }
+Events: delta → { content, type }, usage → { prompt_tokens, ... }, done → {}, error → { message }
+
+GET /api/models
+Response: { models: [{ id, name }] }
 ```
 
 ## Стек
