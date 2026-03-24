@@ -24,6 +24,14 @@ export interface ChatRequest {
   messages: Array<{ role: string; content: string }>;
   model?: string;
   temperature?: number;
+  conversation_id?: string;
+}
+
+// Диалог (для списка в сайдбаре)
+export interface Conversation {
+  id: string;
+  title: string;
+  updated_at: string;
 }
 
 // Ответ от /api/chat (не-стриминг)

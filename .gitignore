@@ -5,4 +5,5 @@ __pycache__/
 *.pyc
 dist/
 .DS_Store
+backend/data/*.db
 .playwright-mcp

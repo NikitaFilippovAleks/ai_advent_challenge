@@ -1,4 +1,11 @@
-import { ChatRequest, ChatResponse, ModelInfo, UsageInfo } from "../types";
+import {
+  ChatRequest,
+  ChatResponse,
+  Conversation,
+  Message,
+  ModelInfo,
+  UsageInfo,
+} from "../types";
 
 // Отправка сообщения без стриминга (обратная совместимость)
 export async function sendMessage(request: ChatRequest): Promise<ChatResponse> {
@@ -96,6 +103,37 @@ export async function streamMessage(
     if (err instanceof DOMException && err.name === "AbortError") return;
     callbacks.onError(err instanceof Error ? err : new Error(String(err)));
   }
+}
+
+// --- Функции для работы с диалогами ---
+
+export async function getConversations(): Promise<Conversation[]> {
+  const res = await fetch("/api/conversations");
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  return res.json();
+}
+
+export async function createConversation(): Promise<Conversation> {
+  const res = await fetch("/api/conversations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  return res.json();
+}
+
+export async function getMessages(conversationId: string): Promise<Message[]> {
+  const res = await fetch(`/api/conversations/${conversationId}/messages`);
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
 }
 
 export async function getModels(): Promise<ModelInfo[]> {

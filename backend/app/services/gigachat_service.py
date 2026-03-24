@@ -98,3 +98,22 @@ async def stream_chat_response(
                         },
                     }
                 yield {"type": "done", "data": {}}
+
+
+async def generate_title(user_message: str, assistant_response: str) -> str:
+    """Генерирует короткое название диалога по первому обмену сообщениями."""
+    prompt_messages = [
+        {
+            "role": "system",
+            "content": (
+                "Придумай короткое название (3-5 слов) для диалога. "
+                "Отвечай ТОЛЬКО названием, без кавычек и пояснений."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Пользователь: {user_message}\nАссистент: {assistant_response[:200]}",
+        },
+    ]
+    result = await get_chat_response(prompt_messages, temperature=0.3)
+    return result["content"].strip()[:100]

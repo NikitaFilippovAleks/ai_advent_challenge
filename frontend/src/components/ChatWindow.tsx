@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Message, ModelInfo } from "../types";
-import { streamMessage } from "../api/chat";
+import { streamMessage, getMessages } from "../api/chat";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 
 interface Props {
   models: ModelInfo[];
+  conversationId: string | null;
+  onConversationUpdate: () => void;
 }
 
-function ChatWindow({ models }: Props) {
+function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>("");
@@ -25,6 +27,15 @@ function ChatWindow({ models }: Props) {
       setSelectedModel(models[0].id);
     }
   }, [models, selectedModel]);
+
+  // Загрузка истории сообщений при монтировании (если есть conversationId)
+  useEffect(() => {
+    if (conversationId) {
+      getMessages(conversationId)
+        .then(setMessages)
+        .catch(() => {});
+    }
+  }, [conversationId]);
 
   // Сброс rAF при размонтировании
   useEffect(() => {
@@ -74,6 +85,7 @@ function ChatWindow({ models }: Props) {
         })),
         model: selectedModel,
         temperature,
+        conversation_id: conversationId || undefined,
       },
       {
         // Текст копится в буфер, стейт обновляется через rAF (макс 60 раз/сек)
@@ -111,6 +123,8 @@ function ChatWindow({ models }: Props) {
           });
           setIsLoading(false);
           abortRef.current = null;
+          // Обновляем список диалогов (название могло измениться)
+          onConversationUpdate();
         },
         onError: (error) => {
           if (rafIdRef.current !== null) {
@@ -189,12 +203,20 @@ function ChatWindow({ models }: Props) {
           </div>
         </div>
       </div>
-      <MessageList
-        messages={messages}
-        isLoading={isLoading}
-        onStop={handleStop}
-      />
-      <MessageInput onSend={handleSend} disabled={isLoading} />
+      {conversationId ? (
+        <>
+          <MessageList
+            messages={messages}
+            isLoading={isLoading}
+            onStop={handleStop}
+          />
+          <MessageInput onSend={handleSend} disabled={isLoading} />
+        </>
+      ) : (
+        <div className="chat-placeholder">
+          Выберите диалог или создайте новый
+        </div>
+      )}
     </div>
   );
 }
