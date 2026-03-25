@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Message, ModelInfo } from "../types";
 import { streamMessage, getMessages } from "../api/chat";
 import MessageList from "./MessageList";
@@ -62,6 +62,21 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
     });
     rafIdRef.current = null;
   }, []);
+
+  // Суммарные токены за весь диалог
+  const totalUsage = useMemo(() => {
+    let prompt = 0;
+    let completion = 0;
+    let total = 0;
+    for (const m of messages) {
+      if (m.usage) {
+        prompt += m.usage.prompt_tokens;
+        completion += m.usage.completion_tokens;
+        total += m.usage.total_tokens;
+      }
+    }
+    return { prompt, completion, total };
+  }, [messages]);
 
   const handleSend = async (text: string) => {
     const userMessage: Message = { role: "user", content: text };
@@ -210,6 +225,13 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
             isLoading={isLoading}
             onStop={handleStop}
           />
+          {totalUsage.total > 0 && (
+            <div className="token-summary">
+              <span className="token-summary-item prompt">↑ Запрос: {totalUsage.prompt}</span>
+              <span className="token-summary-item completion">↓ Ответ: {totalUsage.completion}</span>
+              <span className="token-summary-item total">Σ Всего: {totalUsage.total}</span>
+            </div>
+          )}
           <MessageInput onSend={handleSend} disabled={isLoading} />
         </>
       ) : (

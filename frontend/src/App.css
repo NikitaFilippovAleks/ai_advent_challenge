@@ -261,6 +261,48 @@ body {
   color: #999;
 }
 
+/* Бейджи токенов на сообщении */
+.token-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+.token-prompt {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+.token-completion {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+.token-total {
+  background: #f5f5f5;
+  color: #616161;
+}
+
+/* Панель-сводка токенов диалога */
+.token-summary {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  padding: 4px 16px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 0.72rem;
+  background: #fafafa;
+}
+.token-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.token-summary-item.prompt { color: #1565c0; }
+.token-summary-item.completion { color: #2e7d32; }
+.token-summary-item.total { color: #616161; font-weight: 600; }
+
 .message-input {
   display: flex;
   gap: 6px;

@@ -25,7 +25,17 @@ function MessageBubble({ message }: Props) {
             <span>{(message.responseTime / 1000).toFixed(1)}с</span>
           )}
           {message.usage && (
-            <span>{message.usage.total_tokens} ток.</span>
+            <>
+              <span className="token-badge token-prompt">
+                ↑ {message.usage.prompt_tokens}
+              </span>
+              <span className="token-badge token-completion">
+                ↓ {message.usage.completion_tokens}
+              </span>
+              <span className="token-badge token-total">
+                Σ {message.usage.total_tokens}
+              </span>
+            </>
           )}
         </div>
       )}
