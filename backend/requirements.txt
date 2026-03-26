@@ -2,5 +2,6 @@ fastapi
 uvicorn[standard]
 gigachat
 pydantic-settings
+sqlalchemy[asyncio]
 aiosqlite
 ruff

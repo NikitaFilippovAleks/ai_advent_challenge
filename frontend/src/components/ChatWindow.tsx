@@ -92,12 +92,15 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    // При наличии диалога отправляем только последнее сообщение —
+    // бэкенд возьмёт историю из БД и подставит суммаризации
+    const requestMessages = conversationId
+      ? [{ role: "user" as const, content: text }]
+      : updatedMessages.map((m) => ({ role: m.role, content: m.content }));
+
     await streamMessage(
       {
-        messages: updatedMessages.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
+        messages: requestMessages,
         model: selectedModel,
         temperature,
         conversation_id: conversationId || undefined,
