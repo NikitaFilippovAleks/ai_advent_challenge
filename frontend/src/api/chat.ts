@@ -1,7 +1,10 @@
 import {
+  Branch,
   ChatRequest,
   ChatResponse,
+  ContextStrategy,
   Conversation,
+  Fact,
   Message,
   ModelInfo,
   UsageInfo,
@@ -145,4 +148,92 @@ export async function getModels(): Promise<ModelInfo[]> {
 
   const data = await res.json();
   return data.models;
+}
+
+// --- Стратегии контекста ---
+
+export async function getStrategy(conversationId: string): Promise<ContextStrategy> {
+  const res = await fetch(`/api/conversations/${conversationId}/strategy`);
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  const data = await res.json();
+  return data.strategy;
+}
+
+export async function setStrategy(
+  conversationId: string,
+  strategy: ContextStrategy,
+): Promise<void> {
+  const res = await fetch(`/api/conversations/${conversationId}/strategy`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ strategy }),
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+// --- Факты (Sticky Facts) ---
+
+export async function getFacts(conversationId: string): Promise<Fact[]> {
+  const res = await fetch(`/api/conversations/${conversationId}/facts`);
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  const data = await res.json();
+  return data.facts;
+}
+
+export async function updateFact(
+  conversationId: string,
+  key: string,
+  value: string,
+): Promise<void> {
+  const res = await fetch(`/api/conversations/${conversationId}/facts`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value }),
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+export async function deleteFact(
+  conversationId: string,
+  key: string,
+): Promise<void> {
+  const res = await fetch(`/api/conversations/${conversationId}/facts/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+// --- Ветки (Branching) ---
+
+export async function getBranches(
+  conversationId: string,
+): Promise<{ branches: Branch[]; active_branch_id: number | null }> {
+  const res = await fetch(`/api/conversations/${conversationId}/branches`);
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  return res.json();
+}
+
+export async function createBranch(
+  conversationId: string,
+  name: string,
+  checkpointMessageId: number,
+): Promise<Branch> {
+  const res = await fetch(`/api/conversations/${conversationId}/branches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, checkpoint_message_id: checkpointMessageId }),
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  return res.json();
+}
+
+export async function activateBranch(
+  conversationId: string,
+  branchId: number,
+): Promise<void> {
+  const res = await fetch(
+    `/api/conversations/${conversationId}/branches/${branchId}/activate`,
+    { method: "PUT" },
+  );
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
 }

@@ -4,9 +4,12 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services.context_service import build_context
+from app.services.context_service import build_context, extract_and_update_facts
 from app.services.database import (
     add_message,
+    add_message_to_branch,
+    get_active_branch_id,
+    get_conversation_strategy,
     get_messages,
     update_conversation_title,
 )
@@ -62,32 +65,58 @@ async def _maybe_generate_title(
 async def chat(request: ChatRequest):
     try:
         if request.conversation_id:
-            # Сначала сохраняем сообщение пользователя в БД
+            strategy = await get_conversation_strategy(request.conversation_id)
             user_msg = request.messages[-1]
-            await add_message(
-                request.conversation_id, user_msg.role, user_msg.content
-            )
-            # Формируем контекст с суммаризациями старых сообщений
-            messages = await build_context(request.conversation_id)
+
+            # Для branching — сохраняем в ветку если она активна
+            branch_id = None
+            if strategy == "branching":
+                branch_id = await get_active_branch_id(request.conversation_id)
+
+            if branch_id:
+                await add_message_to_branch(
+                    request.conversation_id, branch_id,
+                    user_msg.role, user_msg.content,
+                )
+            else:
+                await add_message(
+                    request.conversation_id, user_msg.role, user_msg.content
+                )
+
+            # Формируем контекст по текущей стратегии
+            messages = await build_context(request.conversation_id, strategy)
         else:
-            # Без диалога — отправляем все сообщения как есть
             messages = [m.model_dump() for m in request.messages]
 
         result = await get_chat_response(
             messages, model=request.model, temperature=request.temperature
         )
 
-        # Сохраняем ответ ассистента в БД (user уже сохранён выше)
+        # Сохраняем ответ ассистента
         if request.conversation_id:
             usage_json = None
             if result.get("usage"):
                 usage_json = json.dumps(result["usage"])
-            await add_message(
-                request.conversation_id, "assistant", result["content"], usage_json
-            )
+
+            if branch_id:
+                await add_message_to_branch(
+                    request.conversation_id, branch_id,
+                    "assistant", result["content"], usage_json,
+                )
+            else:
+                await add_message(
+                    request.conversation_id, "assistant", result["content"], usage_json
+                )
+
             await _maybe_generate_title(
                 request.conversation_id, user_msg.content, result["content"]
             )
+
+            # Для sticky_facts — извлекаем факты после ответа
+            if strategy == "sticky_facts":
+                await extract_and_update_facts(
+                    request.conversation_id, user_msg.content, result["content"]
+                )
 
         return ChatResponse(
             content=result["content"],
@@ -105,14 +134,28 @@ async def chat_stream(request: ChatRequest):
         full_response = ""
         usage_data = None
         user_text = request.messages[-1].content if request.messages else ""
+        strategy = "summary"
+        branch_id = None
         try:
-            # Сохраняем сообщение пользователя и формируем контекст с суммаризациями
             if request.conversation_id:
+                strategy = await get_conversation_strategy(request.conversation_id)
                 user_msg = request.messages[-1]
-                await add_message(
-                    request.conversation_id, user_msg.role, user_msg.content
-                )
-                messages = await build_context(request.conversation_id)
+
+                # Для branching — сохраняем в ветку если активна
+                if strategy == "branching":
+                    branch_id = await get_active_branch_id(request.conversation_id)
+
+                if branch_id:
+                    await add_message_to_branch(
+                        request.conversation_id, branch_id,
+                        user_msg.role, user_msg.content,
+                    )
+                else:
+                    await add_message(
+                        request.conversation_id, user_msg.role, user_msg.content
+                    )
+
+                messages = await build_context(request.conversation_id, strategy)
             else:
                 messages = [m.model_dump() for m in request.messages]
 
@@ -122,7 +165,6 @@ async def chat_stream(request: ChatRequest):
                 event_type = event["type"]
                 event_data = json.dumps(event["data"], ensure_ascii=False)
 
-                # Собираем полный ответ и usage для сохранения
                 if event_type == "delta":
                     full_response += event["data"].get("content", "")
                 elif event_type == "usage":
@@ -130,22 +172,37 @@ async def chat_stream(request: ChatRequest):
 
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
 
-                # После завершения — сохраняем ответ ассистента в БД
+                # После завершения — сохраняем ответ ассистента
                 if event_type == "done" and request.conversation_id:
                     usage_json = json.dumps(usage_data) if usage_data else None
-                    await add_message(
-                        request.conversation_id,
-                        "assistant",
-                        full_response,
-                        usage_json,
-                    )
+
+                    if branch_id:
+                        await add_message_to_branch(
+                            request.conversation_id, branch_id,
+                            "assistant", full_response, usage_json,
+                        )
+                    else:
+                        await add_message(
+                            request.conversation_id,
+                            "assistant",
+                            full_response,
+                            usage_json,
+                        )
+
                     await _maybe_generate_title(
                         request.conversation_id,
                         user_text,
                         full_response,
                     )
+
+                    # Для sticky_facts — извлекаем факты после ответа
+                    if strategy == "sticky_facts":
+                        await extract_and_update_facts(
+                            request.conversation_id,
+                            user_text,
+                            full_response,
+                        )
         except Exception as e:
-            # Отправляем ошибку как SSE-событие
             error_data = json.dumps({"message": str(e)}, ensure_ascii=False)
             yield f"event: error\ndata: {error_data}\n\n"
 

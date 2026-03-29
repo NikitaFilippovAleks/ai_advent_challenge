@@ -23,6 +23,7 @@ class ConversationOut(BaseModel):
 
 class MessageOut(BaseModel):
     """Сообщение в ответе API."""
+    id: int | None = None
     role: str
     content: str
     usage: dict | None = None

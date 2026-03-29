@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Message, ModelInfo } from "../types";
-import { streamMessage, getMessages } from "../api/chat";
+import { Message, ModelInfo, ContextStrategy } from "../types";
+import { streamMessage, getMessages, getStrategy, setStrategy } from "../api/chat";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
+import FactsPanel from "./FactsPanel";
+import BranchPanel from "./BranchPanel";
 
 interface Props {
   models: ModelInfo[];
@@ -10,11 +12,22 @@ interface Props {
   onConversationUpdate: () => void;
 }
 
+// Названия стратегий для UI
+const STRATEGY_LABELS: Record<ContextStrategy, string> = {
+  summary: "Суммаризация",
+  sliding_window: "Скользящее окно",
+  sticky_facts: "Ключевые факты",
+  branching: "Ветки диалога",
+};
+
 function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.7);
+  const [contextStrategy, setContextStrategy] = useState<ContextStrategy>("summary");
+  // Триггер для обновления панели фактов после ответа LLM
+  const [factsRefreshTrigger, setFactsRefreshTrigger] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -28,11 +41,14 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
     }
   }, [models, selectedModel]);
 
-  // Загрузка истории сообщений при монтировании (если есть conversationId)
+  // Загрузка истории сообщений и стратегии при смене диалога
   useEffect(() => {
     if (conversationId) {
       getMessages(conversationId)
         .then(setMessages)
+        .catch(() => {});
+      getStrategy(conversationId)
+        .then(setContextStrategy)
         .catch(() => {});
     }
   }, [conversationId]);
@@ -77,6 +93,23 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
     }
     return { prompt, completion, total };
   }, [messages]);
+
+  // Смена стратегии контекста
+  const handleStrategyChange = async (newStrategy: ContextStrategy) => {
+    setContextStrategy(newStrategy);
+    if (conversationId) {
+      await setStrategy(conversationId, newStrategy).catch(() => {});
+    }
+  };
+
+  // Перезагрузка сообщений после переключения ветки
+  const handleBranchSwitch = () => {
+    if (conversationId) {
+      getMessages(conversationId)
+        .then(setMessages)
+        .catch(() => {});
+    }
+  };
 
   const handleSend = async (text: string) => {
     const userMessage: Message = { role: "user", content: text };
@@ -143,6 +176,10 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
           abortRef.current = null;
           // Обновляем список диалогов (название могло измениться)
           onConversationUpdate();
+          // Обновляем факты (если стратегия sticky_facts)
+          if (contextStrategy === "sticky_facts") {
+            setFactsRefreshTrigger((prev) => prev + 1);
+          }
         },
         onError: (error) => {
           if (rafIdRef.current !== null) {
@@ -219,10 +256,40 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
               step={0.1}
             />
           </div>
+          {conversationId && (
+            <select
+              className="chat-strategy-select"
+              value={contextStrategy}
+              onChange={(e) =>
+                handleStrategyChange(e.target.value as ContextStrategy)
+              }
+            >
+              {(Object.keys(STRATEGY_LABELS) as ContextStrategy[]).map((s) => (
+                <option key={s} value={s}>
+                  {STRATEGY_LABELS[s]}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
       {conversationId ? (
         <>
+          {/* Панель фактов — отображается при стратегии sticky_facts */}
+          {contextStrategy === "sticky_facts" && (
+            <FactsPanel
+              conversationId={conversationId}
+              refreshTrigger={factsRefreshTrigger}
+            />
+          )}
+          {/* Панель веток — отображается при стратегии branching */}
+          {contextStrategy === "branching" && (
+            <BranchPanel
+              conversationId={conversationId}
+              messages={messages}
+              onBranchSwitch={handleBranchSwitch}
+            />
+          )}
           <MessageList
             messages={messages}
             isLoading={isLoading}

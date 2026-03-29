@@ -10,6 +10,7 @@ export type MessageRole = "user" | "assistant" | "system" | "tool";
 
 // Единое сообщение в диалоге
 export interface Message {
+  id?: number;              // ID из БД (для branching)
   role: MessageRole;
   content: string;
   usage?: UsageInfo;        // токены (только для assistant)
@@ -44,6 +45,26 @@ export interface ChatResponse {
 export interface ModelInfo {
   id: string;
   name: string;
+}
+
+// --- Стратегии управления контекстом ---
+
+// Доступные стратегии контекста
+export type ContextStrategy = "summary" | "sliding_window" | "sticky_facts" | "branching";
+
+// Факт из диалога (для стратегии Sticky Facts)
+export interface Fact {
+  key: string;
+  value: string;
+  updated_at?: string;
+}
+
+// Ветка диалога (для стратегии Branching)
+export interface Branch {
+  id: number;
+  name: string;
+  checkpoint_message_id: number;
+  created_at: string;
 }
 
 // --- Подготовка для агентной архитектуры ---

@@ -34,15 +34,20 @@ npm run build     # TypeScript + Vite production сборка
 **Бэкенд (Python 3.12, FastAPI):**
 - `backend/app/main.py` — точка входа FastAPI, подключает роутеры
 - `backend/app/routers/chat.py` — эндпоинты `POST /api/chat` и `POST /api/chat/stream` (SSE)
+- `backend/app/routers/context.py` — эндпоинты управления стратегиями контекста, фактами и ветками
 - `backend/app/services/gigachat_service.py` — интеграция с GigaChat SDK (обычный и стриминг-ответ)
+- `backend/app/services/context_service.py` — 4 стратегии управления контекстом (summary, sliding_window, sticky_facts, branching)
 - `backend/app/services/agent/` — каркас агентной архитектуры (types, tools, runner)
+- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch
 - `backend/app/config.py` — pydantic-settings, загружает переменные из `.env`
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
-- `frontend/src/components/ChatWindow.tsx` — стейт сообщений, стриминг-отправка, AbortController
-- `frontend/src/api/chat.ts` — API-клиент: `streamMessage()` (SSE) и `sendMessage()` (обычный)
-- `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ToolCall, StreamDelta
+- `frontend/src/components/ChatWindow.tsx` — стейт сообщений, стриминг-отправка, переключатель стратегий контекста
+- `frontend/src/components/FactsPanel.tsx` — панель ключевых фактов (стратегия sticky_facts)
+- `frontend/src/components/BranchPanel.tsx` — панель веток диалога (стратегия branching)
+- `frontend/src/api/chat.ts` — API-клиент: чат, стриминг, стратегии, факты, ветки
+- `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ContextStrategy, Fact, Branch и др.
 
 **Взаимодействие:** Фронтенд → Vite proxy (`/api` → `http://backend:8000`) → FastAPI → GigaChat SDK
 
@@ -63,7 +68,36 @@ Events: delta → { content, type }, usage → { prompt_tokens, ... }, done → 
 
 GET /api/models
 Response: { models: [{ id, name }] }
+
+GET /api/conversations/{id}/strategy
+Response: { strategy: "summary" | "sliding_window" | "sticky_facts" | "branching" }
+
+PUT /api/conversations/{id}/strategy
+Body: { strategy: string }
+
+GET /api/conversations/{id}/facts
+Response: { facts: [{ key, value, updated_at }] }
+
+PUT /api/conversations/{id}/facts
+Body: { key, value }
+
+DELETE /api/conversations/{id}/facts/{key}
+
+GET /api/conversations/{id}/branches
+Response: { branches: [{ id, name, checkpoint_message_id, created_at }], active_branch_id }
+
+POST /api/conversations/{id}/branches
+Body: { name, checkpoint_message_id }
+
+PUT /api/conversations/{id}/branches/{branch_id}/activate
 ```
+
+## Стратегии управления контекстом
+
+- **summary** (по умолчанию) — суммаризация старых сообщений через GigaChat, последние N остаются как есть
+- **sliding_window** — только последние N сообщений, остальное отбрасывается
+- **sticky_facts** — KV-память (факты) + последние N сообщений; факты извлекаются автоматически после каждого ответа
+- **branching** — чекпоинты и ветки диалога; можно создать несколько веток от одного места и переключаться между ними
 
 ## Стек
 

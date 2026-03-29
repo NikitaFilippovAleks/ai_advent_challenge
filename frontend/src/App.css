@@ -446,3 +446,290 @@ body {
 .markdown-content a:hover {
   text-decoration: underline;
 }
+
+/* --- Переключатель стратегий контекста --- */
+
+.chat-strategy-select {
+  padding: 4px 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  background: #f8f9fa;
+  cursor: pointer;
+}
+
+.chat-strategy-select:focus {
+  border-color: #4a76a8;
+}
+
+/* --- Панель фактов (Sticky Facts) --- */
+
+.facts-panel {
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafbfc;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.facts-header {
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #4a76a8;
+  font-size: 0.8rem;
+}
+
+.facts-empty {
+  color: #999;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.facts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.fact-item {
+  background: white;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.fact-view {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fact-key {
+  font-weight: 600;
+  color: #555;
+  white-space: nowrap;
+}
+
+.fact-value {
+  flex: 1;
+  color: #333;
+}
+
+.fact-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.fact-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+}
+
+.fact-btn:hover {
+  background: #f0f0f0;
+}
+
+.fact-btn-delete:hover {
+  background: #fdecea;
+  color: #d32f2f;
+}
+
+.fact-btn-save {
+  background: #4a76a8;
+  color: white;
+}
+
+.fact-btn-add {
+  background: #4a76a8;
+  color: white;
+  font-size: 0.85rem;
+  padding: 2px 10px;
+  border-radius: 6px;
+}
+
+.fact-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fact-edit-input {
+  flex: 1;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 0.78rem;
+}
+
+.fact-add {
+  display: flex;
+  gap: 4px;
+}
+
+.fact-add-key,
+.fact-add-value {
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 0.75rem;
+}
+
+.fact-add-key {
+  width: 100px;
+}
+
+.fact-add-value {
+  flex: 1;
+}
+
+/* --- Панель веток (Branching) --- */
+
+.branch-panel {
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafbfc;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.branch-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-weight: 600;
+  color: #4a76a8;
+  font-size: 0.8rem;
+}
+
+.branch-btn {
+  border: none;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.branch-btn-new {
+  background: #4a76a8;
+  color: white;
+}
+
+.branch-btn-new:hover {
+  background: #3d6590;
+}
+
+.branch-empty {
+  color: #999;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+.branch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.branch-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: white;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.branch-item.branch-active {
+  border-color: #4a76a8;
+  background: #f0f6ff;
+}
+
+.branch-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.branch-name {
+  font-weight: 600;
+  color: #333;
+}
+
+.branch-checkpoint {
+  font-size: 0.68rem;
+  color: #999;
+}
+
+.branch-btn-switch {
+  background: #e8e8e8;
+  color: #333;
+}
+
+.branch-btn-switch:hover {
+  background: #d0d0d0;
+}
+
+.branch-active-label {
+  font-size: 0.7rem;
+  color: #4a76a8;
+  font-weight: 600;
+}
+
+.branch-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 8px;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+}
+
+.branch-name-input {
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+}
+
+.branch-checkpoint-select {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.branch-checkpoint-select label {
+  font-size: 0.72rem;
+  color: #666;
+}
+
+.branch-checkpoint-select select {
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 0.75rem;
+}
+
+.branch-btn-create {
+  background: #4a76a8;
+  color: white;
+  align-self: flex-start;
+  padding: 4px 14px;
+}
+
+.branch-btn-create:hover {
+  background: #3d6590;
+}
