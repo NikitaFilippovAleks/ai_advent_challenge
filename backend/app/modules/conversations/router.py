@@ -1,33 +1,17 @@
 """Роутер для управления диалогами (CRUD)."""
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
-from app.services.database import (
+from app.modules.conversations.repository import (
     create_conversation,
     delete_conversation,
     get_conversation,
     get_messages,
     list_conversations,
 )
+from app.modules.conversations.schemas import ConversationOut, MessageOut
 
 router = APIRouter()
-
-
-class ConversationOut(BaseModel):
-    """Диалог в ответе API."""
-    id: str
-    title: str
-    updated_at: str
-
-
-class MessageOut(BaseModel):
-    """Сообщение в ответе API."""
-    id: int | None = None
-    role: str
-    content: str
-    usage: dict | None = None
-    created_at: str
 
 
 @router.get("/api/conversations", response_model=list[ConversationOut])

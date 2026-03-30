@@ -2,16 +2,16 @@
 
 Позволяет регистрировать callable-функции как инструменты,
 которые агент может вызывать через function calling.
-Пока пустой — готов к расширению.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
 class ToolDefinition:
     """Определение инструмента: функция + метаданные для LLM."""
+
     name: str
     description: str
     parameters: dict  # JSON Schema параметров
@@ -25,7 +25,11 @@ class ToolRegistry:
         self._tools: dict[str, ToolDefinition] = {}
 
     def register(
-        self, name: str, fn: Callable, description: str = "", parameters: dict | None = None
+        self,
+        name: str,
+        fn: Callable,
+        description: str = "",
+        parameters: dict | None = None,
     ) -> None:
         """Регистрирует инструмент в реестре."""
         self._tools[name] = ToolDefinition(

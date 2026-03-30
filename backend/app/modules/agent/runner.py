@@ -6,19 +6,24 @@ TODO: Реализовать agent loop:
 3. Добавить результат в историю и повторить
 4. Если LLM возвращает текст — вернуть как финальный ответ
 
-Пока это заглушка — просто делегирует в chat_service.
+Пока это заглушка — просто делегирует в LLM-провайдер.
 """
 
 from collections.abc import AsyncGenerator
 
-from app.services.agent.tools import ToolRegistry
-from app.services.gigachat_service import stream_chat_response
+from app.modules.agent.tools import ToolRegistry
+from app.shared.llm.base import BaseLLMProvider
 
 
 class AgentRunner:
     """Оркестратор цикла агента с поддержкой инструментов."""
 
-    def __init__(self, tool_registry: ToolRegistry | None = None) -> None:
+    def __init__(
+        self,
+        llm: BaseLLMProvider,
+        tool_registry: ToolRegistry | None = None,
+    ) -> None:
+        self._llm = llm
         self.tools = tool_registry or ToolRegistry()
 
     async def run_stream(
@@ -29,8 +34,10 @@ class AgentRunner:
     ) -> AsyncGenerator[dict, None]:
         """Запускает агента со стримингом.
 
-        Пока просто делегирует в stream_chat_response.
+        Пока просто делегирует в LLM-провайдер.
         В будущем здесь будет agent loop с вызовом инструментов.
         """
-        async for event in stream_chat_response(messages, model=model, temperature=temperature):
+        async for event in self._llm.stream(
+            messages, model=model, temperature=temperature
+        ):
             yield event

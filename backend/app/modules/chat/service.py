@@ -1,69 +1,35 @@
+"""Сервис обработки чат-сообщений.
+
+Содержит всю бизнес-логику: сохранение сообщений, построение контекста,
+вызов LLM, генерация заголовка, извлечение фактов.
+"""
+
 import json
+from collections.abc import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-
-from app.services.context_service import build_context, extract_and_update_facts
-from app.services.database import (
+from app.modules.chat.schemas import ChatRequest, ChatResponse
+from app.modules.context.repository import get_active_branch_id, get_conversation_strategy
+from app.modules.context.service import ContextService
+from app.modules.conversations.repository import (
     add_message,
     add_message_to_branch,
-    get_active_branch_id,
-    get_conversation_strategy,
     get_messages,
     update_conversation_title,
 )
-from app.services.gigachat_service import (
-    generate_title,
-    get_available_models,
-    get_chat_response,
-    stream_chat_response,
-)
-
-router = APIRouter()
+from app.shared.llm.gigachat import GigaChatProvider
 
 
-class MessageItem(BaseModel):
-    role: str
-    content: str
+class ChatService:
+    """Оркестратор обработки чат-сообщений."""
 
+    def __init__(
+        self, llm: GigaChatProvider, context_service: ContextService
+    ) -> None:
+        self._llm = llm
+        self._context = context_service
 
-class ChatRequest(BaseModel):
-    messages: list[MessageItem]
-    model: str | None = None
-    temperature: float | None = None
-    conversation_id: str | None = None
-
-
-class UsageInfo(BaseModel):
-    """Информация об использовании токенов."""
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
-
-
-class ChatResponse(BaseModel):
-    content: str
-    usage: UsageInfo | None = None
-
-
-async def _maybe_generate_title(
-    conversation_id: str, user_text: str, assistant_text: str
-) -> None:
-    """Генерирует название если это первый обмен сообщениями в диалоге."""
-    messages = await get_messages(conversation_id)
-    # Ровно 2 сообщения — только что добавленные, первый обмен
-    if len(messages) == 2:
-        try:
-            title = await generate_title(user_text, assistant_text)
-            await update_conversation_title(conversation_id, title)
-        except Exception:
-            pass  # Не критично если название не сгенерировалось
-
-
-@router.post("/api/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    try:
+    async def process_message(self, request: ChatRequest) -> ChatResponse:
+        """Обрабатывает сообщение: сохраняет, строит контекст, вызывает LLM."""
         if request.conversation_id:
             strategy = await get_conversation_strategy(request.conversation_id)
             user_msg = request.messages[-1]
@@ -84,11 +50,13 @@ async def chat(request: ChatRequest):
                 )
 
             # Формируем контекст по текущей стратегии
-            messages = await build_context(request.conversation_id, strategy)
+            messages = await self._context.build_context(
+                request.conversation_id, strategy
+            )
         else:
             messages = [m.model_dump() for m in request.messages]
 
-        result = await get_chat_response(
+        result = await self._llm.chat(
             messages, model=request.model, temperature=request.temperature
         )
 
@@ -108,13 +76,13 @@ async def chat(request: ChatRequest):
                     request.conversation_id, "assistant", result["content"], usage_json
                 )
 
-            await _maybe_generate_title(
+            await self._maybe_generate_title(
                 request.conversation_id, user_msg.content, result["content"]
             )
 
             # Для sticky_facts — извлекаем факты после ответа
             if strategy == "sticky_facts":
-                await extract_and_update_facts(
+                await self._context.extract_and_update_facts(
                     request.conversation_id, user_msg.content, result["content"]
                 )
 
@@ -122,20 +90,17 @@ async def chat(request: ChatRequest):
             content=result["content"],
             usage=result.get("usage"),
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.post("/api/chat/stream")
-async def chat_stream(request: ChatRequest):
-    """SSE-эндпоинт для стриминга ответа от GigaChat."""
-
-    async def event_generator():
+    async def process_message_stream(
+        self, request: ChatRequest
+    ) -> AsyncGenerator[str, None]:
+        """SSE-генератор: стримит ответ от LLM."""
         full_response = ""
         usage_data = None
         user_text = request.messages[-1].content if request.messages else ""
         strategy = "summary"
         branch_id = None
+
         try:
             if request.conversation_id:
                 strategy = await get_conversation_strategy(request.conversation_id)
@@ -155,11 +120,13 @@ async def chat_stream(request: ChatRequest):
                         request.conversation_id, user_msg.role, user_msg.content
                     )
 
-                messages = await build_context(request.conversation_id, strategy)
+                messages = await self._context.build_context(
+                    request.conversation_id, strategy
+                )
             else:
                 messages = [m.model_dump() for m in request.messages]
 
-            async for event in stream_chat_response(
+            async for event in self._llm.stream(
                 messages, model=request.model, temperature=request.temperature
             ):
                 event_type = event["type"]
@@ -189,7 +156,7 @@ async def chat_stream(request: ChatRequest):
                             usage_json,
                         )
 
-                    await _maybe_generate_title(
+                    await self._maybe_generate_title(
                         request.conversation_id,
                         user_text,
                         full_response,
@@ -197,7 +164,7 @@ async def chat_stream(request: ChatRequest):
 
                     # Для sticky_facts — извлекаем факты после ответа
                     if strategy == "sticky_facts":
-                        await extract_and_update_facts(
+                        await self._context.extract_and_update_facts(
                             request.conversation_id,
                             user_text,
                             full_response,
@@ -206,20 +173,19 @@ async def chat_stream(request: ChatRequest):
             error_data = json.dumps({"message": str(e)}, ensure_ascii=False)
             yield f"event: error\ndata: {error_data}\n\n"
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    async def get_models(self) -> list[dict]:
+        """Возвращает список доступных моделей."""
+        return await self._llm.list_models()
 
-
-@router.get("/api/models")
-async def models():
-    try:
-        available = await get_available_models()
-        return {"models": available}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    async def _maybe_generate_title(
+        self, conversation_id: str, user_text: str, assistant_text: str
+    ) -> None:
+        """Генерирует название если это первый обмен сообщениями в диалоге."""
+        messages = await get_messages(conversation_id)
+        # Ровно 2 сообщения — только что добавленные, первый обмен
+        if len(messages) == 2:
+            try:
+                title = await self._llm.generate_title(user_text, assistant_text)
+                await update_conversation_title(conversation_id, title)
+            except Exception:
+                pass  # Не критично если название не сгенерировалось

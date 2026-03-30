@@ -1,32 +1,30 @@
 """API-эндпоинты для управления стратегиями контекста, фактами и ветками."""
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
-from app.services.database import (
+from app.modules.context.repository import (
     create_branch,
     delete_fact,
     get_active_branch_id,
     get_branches,
     get_conversation_strategy,
     get_facts,
-    get_messages_with_ids,
     set_active_branch,
     set_conversation_strategy,
     set_fact,
 )
+from app.modules.context.schemas import (
+    BranchRequest,
+    FactRequest,
+    StrategyRequest,
+    VALID_STRATEGIES,
+)
+from app.modules.conversations.repository import get_messages_with_ids
 
 router = APIRouter()
 
 
 # --- Стратегия контекста ---
-
-
-class StrategyRequest(BaseModel):
-    strategy: str  # summary | sliding_window | sticky_facts | branching
-
-
-VALID_STRATEGIES = {"summary", "sliding_window", "sticky_facts", "branching"}
 
 
 @router.get("/api/conversations/{conversation_id}/strategy")
@@ -50,11 +48,6 @@ async def update_strategy(conversation_id: str, request: StrategyRequest):
 
 
 # --- Факты (Sticky Facts) ---
-
-
-class FactRequest(BaseModel):
-    key: str
-    value: str
 
 
 @router.get("/api/conversations/{conversation_id}/facts")
@@ -81,15 +74,6 @@ async def remove_fact(conversation_id: str, key: str):
 
 
 # --- Ветки (Branching) ---
-
-
-class BranchRequest(BaseModel):
-    name: str
-    checkpoint_message_id: int
-
-
-class ActivateBranchRequest(BaseModel):
-    pass  # Тело не нужно, branch_id из URL
 
 
 @router.get("/api/conversations/{conversation_id}/branches")

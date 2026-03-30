@@ -1,12 +1,18 @@
+"""Composition Root — точка сборки приложения.
+
+Единственное место, которое знает про все модули.
+Все остальные файлы импортируют только из своего слоя.
+"""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers.chat import router as chat_router
-from app.routers.context import router as context_router
-from app.routers.conversations import router as conversations_router
-from app.services.database import init_db
+from app.core.database import init_db
+from app.modules.chat.router import router as chat_router
+from app.modules.context.router import router as context_router
+from app.modules.conversations.router import router as conversations_router
 
 
 @asynccontextmanager
