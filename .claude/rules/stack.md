@@ -6,6 +6,8 @@
 - **uvicorn[standard]** — ASGI-сервер с hot-reload
 - **gigachat** — SDK для работы с GigaChat LLM от Сбера
 - **pydantic-settings** — загрузка конфигурации из .env
+- **SQLAlchemy 2.0 async** — ORM с async/await поддержкой
+- **aiosqlite** — async-драйвер для SQLite
 
 ## Фронтенд
 - **React 19** — UI-фреймворк

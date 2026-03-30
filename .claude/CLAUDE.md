@@ -31,15 +31,22 @@ npm run build     # TypeScript + Vite production сборка
 
 ## Архитектура
 
-**Бэкенд (Python 3.12, FastAPI):**
-- `backend/app/main.py` — точка входа FastAPI, подключает роутеры
-- `backend/app/routers/chat.py` — эндпоинты `POST /api/chat` и `POST /api/chat/stream` (SSE)
-- `backend/app/routers/context.py` — эндпоинты управления стратегиями контекста, фактами и ветками
-- `backend/app/services/gigachat_service.py` — интеграция с GigaChat SDK (обычный и стриминг-ответ)
-- `backend/app/services/context_service.py` — 4 стратегии управления контекстом (summary, sliding_window, sticky_facts, branching)
-- `backend/app/services/agent/` — каркас агентной архитектуры (types, tools, runner)
+**Бэкенд (Python 3.12, FastAPI) — доменно-модульная архитектура:**
+
+Три слоя: `core/` (инфраструктура) → `shared/` (общие абстракции) → `modules/` (бизнес-домены).
+Правило импортов: каждый слой импортирует только из слоёв ниже. Модули не импортируют друг друга (кроме `dependencies.py` для DI).
+
+- `backend/app/main.py` — Composition Root: создаёт FastAPI, подключает роутеры модулей
 - `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch
-- `backend/app/config.py` — pydantic-settings, загружает переменные из `.env`
+- `backend/app/core/config.py` — pydantic-settings, загружает переменные из `.env`
+- `backend/app/core/database.py` — SQLAlchemy async engine, session factory, init_db, миграции
+- `backend/app/core/exceptions.py` — базовые исключения (NotFoundError, ValidationError)
+- `backend/app/shared/llm/base.py` — BaseLLMProvider ABC (абстракция над LLM-провайдером)
+- `backend/app/shared/llm/gigachat.py` — GigaChatProvider (реализация для GigaChat SDK)
+- `backend/app/modules/chat/` — обработка сообщений (router, service, schemas, dependencies)
+- `backend/app/modules/conversations/` — CRUD диалогов (router, repository, schemas)
+- `backend/app/modules/context/` — стратегии контекста, факты, ветки (router, service, repository, schemas, strategies/)
+- `backend/app/modules/agent/` — каркас агентной архитектуры (runner, types, tools, dependencies)
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
@@ -101,7 +108,7 @@ PUT /api/conversations/{id}/branches/{branch_id}/activate
 
 ## Стек
 
-- **Backend:** Python 3.12, FastAPI, uvicorn, gigachat SDK, pydantic-settings
+- **Backend:** Python 3.12, FastAPI, uvicorn, gigachat SDK, pydantic-settings, SQLAlchemy 2.0 async + aiosqlite
 - **Frontend:** React 19, TypeScript 5.6, Vite 6
 - **Infra:** Docker, Docker Compose
 
@@ -109,7 +116,8 @@ PUT /api/conversations/{id}/branches/{branch_id}/activate
 
 - **Python:** async/await, Pydantic-модели для валидации, комментарии на русском
 - **TypeScript:** strict mode, функциональные компоненты с хуками, интерфейсы для типов
-- **Общее:** без классовых компонентов React, разделение на роуты/сервисы/компоненты
+- **Общее:** без классовых компонентов React, роутеры — тонкие (бизнес-логика в сервисах), компоненты не делают прямых HTTP-запросов
+- **DI:** FastAPI `Depends()` + `lru_cache` для синглтонов, кросс-модульный импорт только в `dependencies.py`
 
 ## Актуализация документации
 
