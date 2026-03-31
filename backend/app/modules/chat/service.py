@@ -1,11 +1,15 @@
 """Сервис обработки чат-сообщений.
 
 Содержит всю бизнес-логику: сохранение сообщений, построение контекста,
-вызов LLM, генерация заголовка, извлечение фактов.
+вызов LLM, генерация заголовка, извлечение фактов и памяти.
 """
 
+import asyncio
 import json
+import logging
 from collections.abc import AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 from app.modules.chat.schemas import ChatRequest, ChatResponse
 from app.modules.context.repository import get_active_branch_id, get_conversation_strategy
@@ -86,6 +90,13 @@ class ChatService:
                     request.conversation_id, user_msg.content, result["content"]
                 )
 
+            # Память работает ВСЕГДА — запускаем фоновую задачу (не блокируем ответ)
+            asyncio.create_task(
+                self._extract_memories_safe(
+                    request.conversation_id, user_msg.content, result["content"]
+                )
+            )
+
         return ChatResponse(
             content=result["content"],
             usage=result.get("usage"),
@@ -139,36 +150,15 @@ class ChatService:
 
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
 
-                # После завершения — сохраняем ответ ассистента
-                if event_type == "done" and request.conversation_id:
-                    usage_json = json.dumps(usage_data) if usage_data else None
-
-                    if branch_id:
-                        await add_message_to_branch(
-                            request.conversation_id, branch_id,
-                            "assistant", full_response, usage_json,
-                        )
-                    else:
-                        await add_message(
-                            request.conversation_id,
-                            "assistant",
-                            full_response,
-                            usage_json,
-                        )
-
-                    await self._maybe_generate_title(
-                        request.conversation_id,
-                        user_text,
-                        full_response,
+            # Всё post-processing — в фоновой задаче, чтобы генератор завершился
+            # и StreamingResponse закрыл соединение сразу после done event
+            if request.conversation_id and full_response:
+                asyncio.create_task(
+                    self._post_stream_processing(
+                        request.conversation_id, strategy, branch_id,
+                        user_text, full_response, usage_data,
                     )
-
-                    # Для sticky_facts — извлекаем факты после ответа
-                    if strategy == "sticky_facts":
-                        await self._context.extract_and_update_facts(
-                            request.conversation_id,
-                            user_text,
-                            full_response,
-                        )
+                )
         except Exception as e:
             error_data = json.dumps({"message": str(e)}, ensure_ascii=False)
             yield f"event: error\ndata: {error_data}\n\n"
@@ -176,6 +166,54 @@ class ChatService:
     async def get_models(self) -> list[dict]:
         """Возвращает список доступных моделей."""
         return await self._llm.list_models()
+
+    async def _post_stream_processing(
+        self, conversation_id: str, strategy: str, branch_id: int | None,
+        user_text: str, full_response: str, usage_data: dict | None,
+    ) -> None:
+        """Фоновая задача: сохранение ответа, заголовок, факты, память.
+
+        Вынесено из генератора чтобы SSE-соединение закрывалось сразу после done.
+        """
+        try:
+            # Сохраняем ответ ассистента в БД
+            usage_json = json.dumps(usage_data) if usage_data else None
+            if branch_id:
+                await add_message_to_branch(
+                    conversation_id, branch_id,
+                    "assistant", full_response, usage_json,
+                )
+            else:
+                await add_message(
+                    conversation_id, "assistant", full_response, usage_json,
+                )
+
+            # Генерация заголовка
+            await self._maybe_generate_title(conversation_id, user_text, full_response)
+
+            # Извлечение фактов (для sticky_facts)
+            if strategy == "sticky_facts":
+                await self._context.extract_and_update_facts(
+                    conversation_id, user_text, full_response,
+                )
+
+            # Память — всегда
+            await self._context.extract_memories(
+                conversation_id, user_text, full_response,
+            )
+        except Exception as e:
+            logger.error("Фоновый post-processing упал: %s", e, exc_info=True)
+
+    async def _extract_memories_safe(
+        self, conversation_id: str, user_text: str, assistant_text: str
+    ) -> None:
+        """Безопасно извлекает память в фоне. Ошибки не влияют на основной поток."""
+        try:
+            await self._context.extract_memories(
+                conversation_id, user_text, assistant_text
+            )
+        except Exception as e:
+            logger.error("Фоновое извлечение памяти упало: %s", e, exc_info=True)
 
     async def _maybe_generate_title(
         self, conversation_id: str, user_text: str, assistant_text: str

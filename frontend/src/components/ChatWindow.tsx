@@ -5,6 +5,7 @@ import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import FactsPanel from "./FactsPanel";
 import BranchPanel from "./BranchPanel";
+import MemoryPanel from "./MemoryPanel";
 
 interface Props {
   models: ModelInfo[];
@@ -12,8 +13,8 @@ interface Props {
   onConversationUpdate: () => void;
 }
 
-// Названия стратегий для UI
-const STRATEGY_LABELS: Record<ContextStrategy, string> = {
+// Названия стратегий для UI (memory убрана — память работает всегда)
+const STRATEGY_LABELS: Record<string, string> = {
   summary: "Суммаризация",
   sliding_window: "Скользящее окно",
   sticky_facts: "Ключевые факты",
@@ -26,8 +27,10 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
   const [selectedModel, setSelectedModel] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.7);
   const [contextStrategy, setContextStrategy] = useState<ContextStrategy>("summary");
-  // Триггер для обновления панели фактов после ответа LLM
-  const [factsRefreshTrigger, setFactsRefreshTrigger] = useState(0);
+  // Триггер для обновления панели памяти после ответа LLM
+  const [memoryRefreshTrigger, setMemoryRefreshTrigger] = useState(0);
+  // Состояние сворачивания правой панели памяти
+  const [memoryPanelOpen, setMemoryPanelOpen] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -176,10 +179,11 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
           abortRef.current = null;
           // Обновляем список диалогов (название могло измениться)
           onConversationUpdate();
-          // Обновляем факты (если стратегия sticky_facts)
-          if (contextStrategy === "sticky_facts") {
-            setFactsRefreshTrigger((prev) => prev + 1);
-          }
+          // Память работает всегда — обновляем панель после каждого ответа.
+          // Первый refresh сразу, затем отложенные (ждём фоновый extract_memories на бэкенде)
+          setMemoryRefreshTrigger((prev) => prev + 1);
+          setTimeout(() => setMemoryRefreshTrigger((prev) => prev + 1), 5000);
+          setTimeout(() => setMemoryRefreshTrigger((prev) => prev + 1), 12000);
         },
         onError: (error) => {
           if (rafIdRef.current !== null) {
@@ -264,46 +268,65 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
                 handleStrategyChange(e.target.value as ContextStrategy)
               }
             >
-              {(Object.keys(STRATEGY_LABELS) as ContextStrategy[]).map((s) => (
+              {(Object.keys(STRATEGY_LABELS)).map((s) => (
                 <option key={s} value={s}>
                   {STRATEGY_LABELS[s]}
                 </option>
               ))}
             </select>
           )}
+          {/* Кнопка сворачивания/разворачивания панели памяти */}
+          {conversationId && (
+            <button
+              className="memory-toggle-btn"
+              onClick={() => setMemoryPanelOpen((prev) => !prev)}
+              title={memoryPanelOpen ? "Скрыть память" : "Показать память"}
+            >
+              {memoryPanelOpen ? "▶" : "◀"} Память
+            </button>
+          )}
         </div>
       </div>
       {conversationId ? (
-        <>
-          {/* Панель фактов — отображается при стратегии sticky_facts */}
-          {contextStrategy === "sticky_facts" && (
-            <FactsPanel
-              conversationId={conversationId}
-              refreshTrigger={factsRefreshTrigger}
-            />
-          )}
-          {/* Панель веток — отображается при стратегии branching */}
-          {contextStrategy === "branching" && (
-            <BranchPanel
-              conversationId={conversationId}
+        <div className="chat-body">
+          <div className="chat-main">
+            {/* Панель фактов — отображается при стратегии sticky_facts */}
+            {contextStrategy === "sticky_facts" && (
+              <FactsPanel
+                conversationId={conversationId}
+                refreshTrigger={memoryRefreshTrigger}
+              />
+            )}
+            {/* Панель веток — отображается при стратегии branching */}
+            {contextStrategy === "branching" && (
+              <BranchPanel
+                conversationId={conversationId}
+                messages={messages}
+                onBranchSwitch={handleBranchSwitch}
+              />
+            )}
+            <MessageList
               messages={messages}
-              onBranchSwitch={handleBranchSwitch}
+              isLoading={isLoading}
+              onStop={handleStop}
+            />
+            {totalUsage.total > 0 && (
+              <div className="token-summary">
+                <span className="token-summary-item prompt">↑ Запрос: {totalUsage.prompt}</span>
+                <span className="token-summary-item completion">↓ Ответ: {totalUsage.completion}</span>
+                <span className="token-summary-item total">Σ Всего: {totalUsage.total}</span>
+              </div>
+            )}
+            <MessageInput onSend={handleSend} disabled={isLoading} />
+          </div>
+          {/* Панель памяти — ВСЕГДА справа от чата (сворачиваемая) */}
+          {memoryPanelOpen && (
+            <MemoryPanel
+              conversationId={conversationId}
+              refreshTrigger={memoryRefreshTrigger}
             />
           )}
-          <MessageList
-            messages={messages}
-            isLoading={isLoading}
-            onStop={handleStop}
-          />
-          {totalUsage.total > 0 && (
-            <div className="token-summary">
-              <span className="token-summary-item prompt">↑ Запрос: {totalUsage.prompt}</span>
-              <span className="token-summary-item completion">↓ Ответ: {totalUsage.completion}</span>
-              <span className="token-summary-item total">Σ Всего: {totalUsage.total}</span>
-            </div>
-          )}
-          <MessageInput onSend={handleSend} disabled={isLoading} />
-        </>
+        </div>
       ) : (
         <div className="chat-placeholder">
           Выберите диалог или создайте новый

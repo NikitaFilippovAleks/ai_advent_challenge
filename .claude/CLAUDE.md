@@ -37,7 +37,7 @@ npm run build     # TypeScript + Vite production сборка
 Правило импортов: каждый слой импортирует только из слоёв ниже. Модули не импортируют друг друга (кроме `dependencies.py` для DI).
 
 - `backend/app/main.py` — Composition Root: создаёт FastAPI, подключает роутеры модулей
-- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch
+- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory
 - `backend/app/core/config.py` — pydantic-settings, загружает переменные из `.env`
 - `backend/app/core/database.py` — SQLAlchemy async engine, session factory, init_db, миграции
 - `backend/app/core/exceptions.py` — базовые исключения (NotFoundError, ValidationError)
@@ -46,6 +46,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/chat/` — обработка сообщений (router, service, schemas, dependencies)
 - `backend/app/modules/conversations/` — CRUD диалогов (router, repository, schemas)
 - `backend/app/modules/context/` — стратегии контекста, факты, ветки (router, service, repository, schemas, strategies/)
+- `backend/app/modules/memory/` — трёхуровневая память ассистента (router, service, repository, schemas, dependencies)
 - `backend/app/modules/agent/` — каркас агентной архитектуры (runner, types, tools, dependencies)
 
 **Фронтенд (React 19, TypeScript, Vite):**
@@ -53,6 +54,7 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/components/ChatWindow.tsx` — стейт сообщений, стриминг-отправка, переключатель стратегий контекста
 - `frontend/src/components/FactsPanel.tsx` — панель ключевых фактов (стратегия sticky_facts)
 - `frontend/src/components/BranchPanel.tsx` — панель веток диалога (стратегия branching)
+- `frontend/src/components/MemoryPanel.tsx` — панель трёхуровневой памяти (стратегия memory)
 - `frontend/src/api/chat.ts` — API-клиент: чат, стриминг, стратегии, факты, ветки
 - `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ContextStrategy, Fact, Branch и др.
 
@@ -77,7 +79,7 @@ GET /api/models
 Response: { models: [{ id, name }] }
 
 GET /api/conversations/{id}/strategy
-Response: { strategy: "summary" | "sliding_window" | "sticky_facts" | "branching" }
+Response: { strategy: "summary" | "sliding_window" | "sticky_facts" | "branching" | "memory" }
 
 PUT /api/conversations/{id}/strategy
 Body: { strategy: string }
@@ -97,6 +99,14 @@ POST /api/conversations/{id}/branches
 Body: { name, checkpoint_message_id }
 
 PUT /api/conversations/{id}/branches/{branch_id}/activate
+
+GET /api/memory/{id}
+Response: { short_term: [...], working: [...], long_term: [...] }
+
+GET/POST/DELETE /api/memory/{id}/short-term[/{insight_id}]
+GET/PUT/DELETE /api/memory/{id}/working[/{key}]
+GET/PUT/DELETE /api/memory/long-term[/{memory_id}]
+GET /api/memory/long-term/search?q=...
 ```
 
 ## Стратегии управления контекстом
@@ -105,6 +115,7 @@ PUT /api/conversations/{id}/branches/{branch_id}/activate
 - **sliding_window** — только последние N сообщений, остальное отбрасывается
 - **sticky_facts** — KV-память (факты) + последние N сообщений; факты извлекаются автоматически после каждого ответа
 - **branching** — чекпоинты и ветки диалога; можно создать несколько веток от одного места и переключаться между ними
+- **memory** — трёхуровневая память: краткосрочная (наблюдения текущего диалога) + рабочая (данные задачи) + долгосрочная (кросс-диалоговые знания); LLM автоматически распределяет информацию по уровням
 
 ## Стек
 

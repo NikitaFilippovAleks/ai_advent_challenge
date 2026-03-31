@@ -43,6 +43,7 @@ async def _migrate_add_columns(conn) -> None:
         ("conversations", "context_strategy", "TEXT DEFAULT 'summary'"),
         ("conversations", "active_branch_id", "INTEGER"),
         ("messages", "branch_id", "INTEGER"),
+        ("conversation_facts", "category", "TEXT DEFAULT 'fact'"),
     ]
     for table, column, col_type in migrations:
         try:

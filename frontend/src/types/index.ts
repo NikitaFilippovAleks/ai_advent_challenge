@@ -50,7 +50,7 @@ export interface ModelInfo {
 // --- Стратегии управления контекстом ---
 
 // Доступные стратегии контекста
-export type ContextStrategy = "summary" | "sliding_window" | "sticky_facts" | "branching";
+export type ContextStrategy = "summary" | "sliding_window" | "sticky_facts" | "branching" | "memory";
 
 // Факт из диалога (для стратегии Sticky Facts)
 export interface Fact {
@@ -65,6 +65,41 @@ export interface Branch {
   name: string;
   checkpoint_message_id: number;
   created_at: string;
+}
+
+// --- Трёхуровневая память ассистента ---
+
+// Краткосрочная память — наблюдение из текущего диалога
+export interface ShortTermInsight {
+  id: number;
+  content: string;
+  source_message_id?: number;
+  created_at: string;
+}
+
+// Рабочая память — данные текущей задачи
+export interface WorkingMemoryEntry {
+  key: string;
+  value: string;
+  category: string;
+  updated_at: string;
+}
+
+// Долгосрочная память — кросс-диалоговые знания
+export interface LongTermMemoryEntry {
+  id: number;
+  category: string;
+  key: string;
+  value: string;
+  source_conversation_id?: string;
+  updated_at: string;
+}
+
+// Объединённое состояние всех 3 уровней памяти
+export interface MemoryState {
+  short_term: ShortTermInsight[];
+  working: WorkingMemoryEntry[];
+  long_term: LongTermMemoryEntry[];
 }
 
 // --- Подготовка для агентной архитектуры ---

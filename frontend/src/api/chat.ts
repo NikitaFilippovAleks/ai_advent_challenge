@@ -5,6 +5,8 @@ import {
   ContextStrategy,
   Conversation,
   Fact,
+  LongTermMemoryEntry,
+  MemoryState,
   Message,
   ModelInfo,
   UsageInfo,
@@ -235,5 +237,96 @@ export async function activateBranch(
     `/api/conversations/${conversationId}/branches/${branchId}/activate`,
     { method: "PUT" },
   );
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+// --- Память ассистента (3 уровня) ---
+
+// Все 3 уровня памяти одним запросом
+export async function getMemory(conversationId: string): Promise<MemoryState> {
+  const res = await fetch(`/api/memory/${conversationId}`);
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  return res.json();
+}
+
+// Краткосрочная память
+export async function addInsight(
+  conversationId: string,
+  content: string,
+): Promise<{ id: number }> {
+  const res = await fetch(`/api/memory/${conversationId}/short-term`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteInsight(
+  conversationId: string,
+  insightId: number,
+): Promise<void> {
+  const res = await fetch(
+    `/api/memory/${conversationId}/short-term/${insightId}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+// Рабочая память
+export async function setWorkingMemory(
+  conversationId: string,
+  key: string,
+  value: string,
+  category: string = "fact",
+): Promise<void> {
+  const res = await fetch(`/api/memory/${conversationId}/working`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value, category }),
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+export async function deleteWorkingMemory(
+  conversationId: string,
+  key: string,
+): Promise<void> {
+  const res = await fetch(
+    `/api/memory/${conversationId}/working/${encodeURIComponent(key)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+// Долгосрочная память
+export async function getLongTermMemories(
+  category?: string,
+): Promise<LongTermMemoryEntry[]> {
+  const params = category ? `?category=${encodeURIComponent(category)}` : "";
+  const res = await fetch(`/api/memory/long-term${params}`);
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+  const data = await res.json();
+  return data.long_term;
+}
+
+export async function setLongTermMemory(
+  key: string,
+  value: string,
+  category: string,
+): Promise<void> {
+  const res = await fetch("/api/memory/long-term", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key, value, category }),
+  });
+  if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
+}
+
+export async function deleteLongTermMemory(memoryId: number): Promise<void> {
+  const res = await fetch(`/api/memory/long-term/${memoryId}`, {
+    method: "DELETE",
+  });
   if (!res.ok) throw new Error(`Ошибка: ${res.status}`);
 }

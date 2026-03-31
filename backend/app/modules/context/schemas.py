@@ -3,7 +3,7 @@
 from pydantic import BaseModel
 
 # Допустимые стратегии контекста
-VALID_STRATEGIES = {"summary", "sliding_window", "sticky_facts", "branching"}
+VALID_STRATEGIES = {"summary", "sliding_window", "sticky_facts", "branching", "memory"}
 
 
 class StrategyRequest(BaseModel):

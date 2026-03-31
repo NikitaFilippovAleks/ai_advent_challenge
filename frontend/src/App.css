@@ -497,6 +497,7 @@ body {
 .fact-item {
   background: white;
   border: 1px solid #e8e8e8;
+  overflow: hidden;
   border-radius: 6px;
   padding: 4px 8px;
 }
@@ -505,6 +506,8 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .fact-key {
@@ -516,6 +519,8 @@ body {
 .fact-value {
   flex: 1;
   color: #333;
+  min-width: 0;
+  word-break: break-word;
 }
 
 .fact-actions {
@@ -732,4 +737,230 @@ body {
 
 .branch-btn-create:hover {
   background: #3d6590;
+}
+
+/* --- Панель памяти (Memory) --- */
+
+.memory-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 6px;
+}
+
+.memory-tab {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.memory-tab:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.memory-tab-active {
+  background: #4a76a8;
+  color: white;
+}
+
+.memory-tab-active:hover {
+  background: #3d6590;
+  color: white;
+}
+
+.memory-tab-count {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  padding: 0 5px;
+  font-size: 0.65rem;
+  min-width: 16px;
+  text-align: center;
+}
+
+.memory-tab-active .memory-tab-count {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.memory-category-badge {
+  display: inline-block;
+  background: #e8eef4;
+  color: #4a76a8;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.memory-category-select {
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  background: white;
+  box-sizing: border-box;
+}
+
+/* --- Layout: чат + правая панель памяти --- */
+
+.chat-body {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  overflow: hidden;
+}
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* --- Правая боковая панель памяти --- */
+
+.memory-sidebar-panel {
+  width: 280px;
+  min-width: 280px;
+  border-left: 1px solid #e0e0e0;
+  background: #fafbfc;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 8px;
+  font-size: 0.78rem;
+}
+
+.memory-sidebar-header {
+  font-weight: 600;
+  color: #4a76a8;
+  font-size: 0.82rem;
+  margin-bottom: 6px;
+}
+
+.memory-sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.memory-toggle-btn {
+  border: 1px solid #d0d0d0;
+  background: white;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: #666;
+  margin-left: auto;
+}
+
+.memory-toggle-btn:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+/* --- Переключатель в сайдбаре: Диалоги / Память --- */
+
+.sidebar-tabs {
+  display: flex;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.sidebar-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 10px 8px;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #666;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sidebar-tab:hover {
+  background: #f0f0f0;
+  color: #333;
+}
+
+.sidebar-tab-active {
+  color: #4a76a8;
+  font-weight: 600;
+  border-bottom: 2px solid #4a76a8;
+}
+
+.sidebar-memory-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+/* --- Панель долгосрочной памяти в сайдбаре --- */
+
+.long-term-memory-panel {
+  padding: 8px;
+  font-size: 0.78rem;
+  overflow: hidden;
+}
+
+.long-term-memory-header {
+  font-weight: 600;
+  color: #4a76a8;
+  font-size: 0.82rem;
+  margin-bottom: 4px;
+}
+
+.long-term-memory-description {
+  color: #999;
+  font-size: 0.7rem;
+  font-style: italic;
+  margin-bottom: 8px;
+}
+
+.long-term-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+/* --- Вертикальная форма добавления (для узких панелей) --- */
+
+.memory-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e8e8e8;
+}
+
+.memory-add-form .memory-category-select {
+  width: 100%;
+}
+
+.memory-add-input {
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.memory-add-form .fact-btn-add {
+  align-self: flex-start;
+  padding: 4px 12px;
 }

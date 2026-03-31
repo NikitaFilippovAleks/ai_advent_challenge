@@ -1,4 +1,4 @@
-"""ORM-модели SQLAlchemy для хранения диалогов, сообщений, суммаризаций, фактов и веток."""
+"""ORM-модели SQLAlchemy для хранения диалогов, сообщений, суммаризаций, фактов, веток и памяти."""
 
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -34,6 +34,9 @@ class Conversation(Base):
         back_populates="conversation", cascade="all, delete-orphan"
     )
     branches: Mapped[list["Branch"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan"
+    )
+    insights: Mapped[list["ShortTermInsight"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
 
@@ -85,6 +88,8 @@ class ConversationFact(Base):
     )
     key: Mapped[str] = mapped_column(String)
     value: Mapped[str] = mapped_column(Text)
+    # Категория рабочей памяти: fact, goal, constraint, decision, result
+    category: Mapped[str] = mapped_column(String, default="fact")
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)
 
@@ -106,3 +111,36 @@ class Branch(Base):
     created_at: Mapped[str] = mapped_column(String)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="branches")
+
+
+class ShortTermInsight(Base):
+    """Краткосрочная память — ключевые наблюдения из текущего диалога."""
+
+    __tablename__ = "short_term_insights"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE")
+    )
+    content: Mapped[str] = mapped_column(Text)
+    # ID сообщения, из которого извлечено наблюдение (информационно)
+    source_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[str] = mapped_column(String)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="insights")
+
+
+class LongTermMemory(Base):
+    """Долгосрочная память — кросс-диалоговая, не привязана к конкретному диалогу."""
+
+    __tablename__ = "long_term_memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Категория: preference, knowledge, decision
+    category: Mapped[str] = mapped_column(String)
+    key: Mapped[str] = mapped_column(String)
+    value: Mapped[str] = mapped_column(Text)
+    # Информационная ссылка на диалог-источник (без FK — не удаляется при удалении диалога)
+    source_conversation_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str] = mapped_column(String)
