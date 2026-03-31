@@ -9,12 +9,13 @@ interface Props {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  onOpenProfiles: () => void;
 }
 
 // Вкладки сайдбара
 type SidebarTab = "conversations" | "memory";
 
-function Sidebar({ conversations, activeId, onSelect, onNew, onDelete }: Props) {
+function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, onOpenProfiles }: Props) {
   const [activeTab, setActiveTab] = useState<SidebarTab>("conversations");
 
   return (
@@ -32,6 +33,12 @@ function Sidebar({ conversations, activeId, onSelect, onNew, onDelete }: Props) 
           onClick={() => setActiveTab("memory")}
         >
           Память
+        </button>
+        <button
+          className="sidebar-tab"
+          onClick={onOpenProfiles}
+        >
+          Профили
         </button>
       </div>
 

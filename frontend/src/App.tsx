@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import ChatWindow from "./components/ChatWindow";
 import Sidebar from "./components/Sidebar";
+import ProfilesModal from "./components/ProfilesModal";
 import {
   getModels,
   getConversations,
@@ -15,6 +16,8 @@ function App() {
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
   >(null);
+  const [profilesModalOpen, setProfilesModalOpen] = useState(false);
+  const [profilesVersion, setProfilesVersion] = useState(0);
 
   // Загружаем модели и диалоги при монтировании
   useEffect(() => {
@@ -70,14 +73,21 @@ function App() {
           onSelect={handleSelectConversation}
           onNew={handleNewConversation}
           onDelete={handleDeleteConversation}
+          onOpenProfiles={() => setProfilesModalOpen(true)}
         />
         <ChatWindow
           key={activeConversationId}
           models={models}
           conversationId={activeConversationId}
           onConversationUpdate={refreshConversations}
+          profilesVersion={profilesVersion}
         />
       </div>
+      <ProfilesModal
+        open={profilesModalOpen}
+        onClose={() => setProfilesModalOpen(false)}
+        onProfilesChange={() => setProfilesVersion((v) => v + 1)}
+      />
     </div>
   );
 }

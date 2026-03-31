@@ -37,7 +37,7 @@ npm run build     # TypeScript + Vite production сборка
 Правило импортов: каждый слой импортирует только из слоёв ниже. Модули не импортируют друг друга (кроме `dependencies.py` для DI).
 
 - `backend/app/main.py` — Composition Root: создаёт FastAPI, подключает роутеры модулей
-- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory
+- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory, UserProfile
 - `backend/app/core/config.py` — pydantic-settings, загружает переменные из `.env`
 - `backend/app/core/database.py` — SQLAlchemy async engine, session factory, init_db, миграции
 - `backend/app/core/exceptions.py` — базовые исключения (NotFoundError, ValidationError)
@@ -48,6 +48,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/context/` — стратегии контекста, факты, ветки (router, service, repository, schemas, strategies/)
 - `backend/app/modules/memory/` — трёхуровневая память ассистента (router, service, repository, schemas, dependencies)
 - `backend/app/modules/agent/` — каркас агентной архитектуры (runner, types, tools, dependencies)
+- `backend/app/modules/profiles/` — CRUD профилей пользователя (system prompt для LLM), привязка к диалогам; profiles_router регистрируется первым в main.py (чтобы /default не конфликтовал с /{id})
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
@@ -55,8 +56,11 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/components/FactsPanel.tsx` — панель ключевых фактов (стратегия sticky_facts)
 - `frontend/src/components/BranchPanel.tsx` — панель веток диалога (стратегия branching)
 - `frontend/src/components/MemoryPanel.tsx` — панель трёхуровневой памяти (стратегия memory)
+- `frontend/src/components/ProfilesModal.tsx` — модальное окно управления профилями (CRUD + выбор дефолтного)
+- `frontend/src/components/ProfileSelector.tsx` — выпадающий список выбора профиля для конкретного диалога
 - `frontend/src/api/chat.ts` — API-клиент: чат, стриминг, стратегии, факты, ветки
-- `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ContextStrategy, Fact, Branch и др.
+- `frontend/src/api/profiles.ts` — API-клиент: CRUD профилей, привязка профиля к диалогу
+- `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ContextStrategy, Fact, Branch, UserProfile и др.
 
 **Взаимодействие:** Фронтенд → Vite proxy (`/api` → `http://backend:8000`) → FastAPI → GigaChat SDK
 
@@ -107,6 +111,26 @@ GET/POST/DELETE /api/memory/{id}/short-term[/{insight_id}]
 GET/PUT/DELETE /api/memory/{id}/working[/{key}]
 GET/PUT/DELETE /api/memory/long-term[/{memory_id}]
 GET /api/memory/long-term/search?q=...
+
+GET /api/profiles
+Response: { profiles: [{ id, name, system_prompt, is_default, created_at, updated_at }] }
+
+POST /api/profiles
+Body: { name, system_prompt, is_default? }
+
+GET /api/profiles/default
+Response: { id, name, system_prompt, is_default, ... } | null
+
+GET /api/profiles/{id}
+PUT /api/profiles/{id}
+Body: { name?, system_prompt?, is_default? }
+DELETE /api/profiles/{id}
+
+GET /api/conversations/{id}/profile
+Response: { profile: ProfileOut | null, source: "explicit" | "default" | "none" }
+
+PUT /api/conversations/{id}/profile
+Body: { profile_id: string | null }
 ```
 
 ## Стратегии управления контекстом

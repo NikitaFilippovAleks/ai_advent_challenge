@@ -22,6 +22,10 @@ class Conversation(Base):
     context_strategy: Mapped[str] = mapped_column(String, default="summary")
     # Активная ветка (для стратегии branching)
     active_branch_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Профиль пользователя (system prompt)
+    profile_id: Mapped[str | None] = mapped_column(
+        String, ForeignKey("user_profiles.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Связи: каскадное удаление при удалении диалога
     messages: Mapped[list["Message"]] = relationship(
@@ -142,5 +146,18 @@ class LongTermMemory(Base):
     value: Mapped[str] = mapped_column(Text)
     # Информационная ссылка на диалог-источник (без FK — не удаляется при удалении диалога)
     source_conversation_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str] = mapped_column(String)
+
+
+class UserProfile(Base):
+    """Профиль пользователя — набор инструкций для LLM (system prompt)."""
+
+    __tablename__ = "user_profiles"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)

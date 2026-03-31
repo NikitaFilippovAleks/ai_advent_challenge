@@ -6,11 +6,13 @@ import MessageInput from "./MessageInput";
 import FactsPanel from "./FactsPanel";
 import BranchPanel from "./BranchPanel";
 import MemoryPanel from "./MemoryPanel";
+import ProfileSelector from "./ProfileSelector";
 
 interface Props {
   models: ModelInfo[];
   conversationId: string | null;
   onConversationUpdate: () => void;
+  profilesVersion?: number;
 }
 
 // Названия стратегий для UI (memory убрана — память работает всегда)
@@ -21,7 +23,7 @@ const STRATEGY_LABELS: Record<string, string> = {
   branching: "Ветки диалога",
 };
 
-function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
+function ChatWindow({ models, conversationId, onConversationUpdate, profilesVersion }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedModel, setSelectedModel] = useState<string>("");
@@ -274,6 +276,13 @@ function ChatWindow({ models, conversationId, onConversationUpdate }: Props) {
                 </option>
               ))}
             </select>
+          )}
+          {/* Селектор профиля */}
+          {conversationId && (
+            <ProfileSelector
+              key={profilesVersion}
+              conversationId={conversationId}
+            />
           )}
           {/* Кнопка сворачивания/разворачивания панели памяти */}
           {conversationId && (

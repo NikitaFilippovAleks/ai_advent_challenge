@@ -15,7 +15,7 @@ from app.models import Conversation, Message
 # --- Диалоги ---
 
 
-async def create_conversation(title: str = "Новый диалог") -> dict:
+async def create_conversation(title: str = "Новый диалог", profile_id: str | None = None) -> dict:
     """Создаёт новый диалог и возвращает его данные."""
     now = _now_iso()
     conv = Conversation(
@@ -23,6 +23,7 @@ async def create_conversation(title: str = "Новый диалог") -> dict:
         title=title,
         created_at=now,
         updated_at=now,
+        profile_id=profile_id,
     )
     async with async_session() as session:
         session.add(conv)

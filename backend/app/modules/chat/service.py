@@ -7,7 +7,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +27,39 @@ class ChatService:
     """Оркестратор обработки чат-сообщений."""
 
     def __init__(
-        self, llm: GigaChatProvider, context_service: ContextService
+        self,
+        llm: GigaChatProvider,
+        context_service: ContextService,
+        get_profile_fn: Callable[[str], Awaitable[dict | None]] | None = None,
+        get_default_profile_fn: Callable[[], Awaitable[dict | None]] | None = None,
     ) -> None:
         self._llm = llm
         self._context = context_service
+        self._get_profile = get_profile_fn
+        self._get_default_profile = get_default_profile_fn
+
+    async def _get_system_prompt(self, conversation_id: str) -> str | None:
+        """Получает system prompt из профиля диалога (явного или дефолтного)."""
+        if not self._get_profile or not self._get_default_profile:
+            return None
+
+        from app.core.database import async_session
+        from app.models import Conversation as ConvModel
+
+        async with async_session() as session:
+            conv = await session.get(ConvModel, conversation_id)
+        if conv is None:
+            return None
+
+        profile = None
+        if conv.profile_id:
+            profile = await self._get_profile(conv.profile_id)
+        if profile is None:
+            profile = await self._get_default_profile()
+
+        if profile:
+            return profile["system_prompt"]
+        return None
 
     async def process_message(self, request: ChatRequest) -> ChatResponse:
         """Обрабатывает сообщение: сохраняет, строит контекст, вызывает LLM."""
@@ -57,6 +86,10 @@ class ChatService:
             messages = await self._context.build_context(
                 request.conversation_id, strategy
             )
+            # Подставляем system prompt из профиля (перед сообщениями пользователя)
+            system_prompt = await self._get_system_prompt(request.conversation_id)
+            if system_prompt:
+                messages.insert(0, {"role": "system", "content": system_prompt})
         else:
             messages = [m.model_dump() for m in request.messages]
 
@@ -134,6 +167,10 @@ class ChatService:
                 messages = await self._context.build_context(
                     request.conversation_id, strategy
                 )
+                # Подставляем system prompt из профиля (перед сообщениями пользователя)
+                system_prompt = await self._get_system_prompt(request.conversation_id)
+                if system_prompt:
+                    messages.insert(0, {"role": "system", "content": system_prompt})
             else:
                 messages = [m.model_dump() for m in request.messages]
 

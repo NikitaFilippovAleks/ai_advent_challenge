@@ -102,6 +102,24 @@ export interface MemoryState {
   long_term: LongTermMemoryEntry[];
 }
 
+// --- Профили пользователя ---
+
+// Профиль с system prompt для LLM
+export interface UserProfile {
+  id: string;
+  name: string;
+  system_prompt: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// Профиль диалога с источником
+export interface ConversationProfileInfo {
+  profile: UserProfile | null;
+  source: "explicit" | "default" | "none";
+}
+
 // --- Подготовка для агентной архитектуры ---
 
 // Вызов инструмента от ассистента
