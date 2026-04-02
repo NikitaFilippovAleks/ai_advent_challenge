@@ -37,7 +37,7 @@ npm run build     # TypeScript + Vite production сборка
 Правило импортов: каждый слой импортирует только из слоёв ниже. Модули не импортируют друг друга (кроме `dependencies.py` для DI).
 
 - `backend/app/main.py` — Composition Root: создаёт FastAPI, подключает роутеры модулей
-- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory, UserProfile
+- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory, UserProfile, Invariant
 - `backend/app/core/config.py` — pydantic-settings, загружает переменные из `.env`
 - `backend/app/core/database.py` — SQLAlchemy async engine, session factory, init_db, миграции
 - `backend/app/core/exceptions.py` — базовые исключения (NotFoundError, ValidationError)
@@ -49,6 +49,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/memory/` — трёхуровневая память ассистента (router, service, repository, schemas, dependencies)
 - `backend/app/modules/agent/` — каркас агентной архитектуры (runner, types, tools, dependencies)
 - `backend/app/modules/profiles/` — CRUD профилей пользователя (system prompt для LLM), привязка к диалогам; profiles_router регистрируется первым в main.py (чтобы /default не конфликтовал с /{id})
+- `backend/app/modules/invariants/` — глобальные инварианты (правила, которые ассистент обязан соблюдать): CRUD, toggle, инъекция в system prompt LLM
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
@@ -57,9 +58,11 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/components/BranchPanel.tsx` — панель веток диалога (стратегия branching)
 - `frontend/src/components/MemoryPanel.tsx` — панель трёхуровневой памяти (стратегия memory)
 - `frontend/src/components/ProfilesModal.tsx` — модальное окно управления профилями (CRUD + выбор дефолтного)
+- `frontend/src/components/InvariantsModal.tsx` — модальное окно управления инвариантами (CRUD + toggle вкл/выкл)
 - `frontend/src/components/ProfileSelector.tsx` — выпадающий список выбора профиля для конкретного диалога
 - `frontend/src/api/chat.ts` — API-клиент: чат, стриминг, стратегии, факты, ветки
 - `frontend/src/api/profiles.ts` — API-клиент: CRUD профилей, привязка профиля к диалогу
+- `frontend/src/api/invariants.ts` — API-клиент: CRUD инвариантов, toggle
 - `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ContextStrategy, Fact, Branch, UserProfile и др.
 
 **Взаимодействие:** Фронтенд → Vite proxy (`/api` → `http://backend:8000`) → FastAPI → GigaChat SDK
@@ -131,6 +134,21 @@ Response: { profile: ProfileOut | null, source: "explicit" | "default" | "none" 
 
 PUT /api/conversations/{id}/profile
 Body: { profile_id: string | null }
+
+GET /api/invariants
+Response: [{ id, name, description, category, is_active, priority, created_at, updated_at }]
+
+POST /api/invariants
+Body: { name, description, category?, is_active?, priority? }
+
+GET /api/invariants/{id}
+PUT /api/invariants/{id}
+Body: { name?, description?, category?, is_active?, priority? }
+
+DELETE /api/invariants/{id}
+
+PATCH /api/invariants/{id}/toggle
+Response: InvariantOut (переключает is_active)
 ```
 
 ## Стратегии управления контекстом
@@ -140,6 +158,14 @@ Body: { profile_id: string | null }
 - **sticky_facts** — KV-память (факты) + последние N сообщений; факты извлекаются автоматически после каждого ответа
 - **branching** — чекпоинты и ветки диалога; можно создать несколько веток от одного места и переключаться между ними
 - **memory** — трёхуровневая память: краткосрочная (наблюдения текущего диалога) + рабочая (данные задачи) + долгосрочная (кросс-диалоговые знания); LLM автоматически распределяет информацию по уровням
+
+## Инварианты
+
+Глобальные правила, которые ассистент обязан соблюдать в каждом ответе. Хранятся в таблице `invariants`, не привязаны к конкретному диалогу.
+
+Категории: `architecture`, `technical`, `stack`, `business`.
+
+Активные инварианты инжектируются как system-сообщение с наивысшим приоритетом (позиция 0 в массиве messages), перед system prompt профиля. LLM получает инструкцию отказать при конфликте запроса с инвариантом и объяснить причину.
 
 ## Стек
 

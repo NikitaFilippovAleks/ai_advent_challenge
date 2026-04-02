@@ -161,3 +161,20 @@ class UserProfile(Base):
     is_default: Mapped[bool] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)
+
+
+class Invariant(Base):
+    """Инвариант — правило, которое ассистент не имеет права нарушать."""
+
+    __tablename__ = "invariants"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    # Категория: architecture, technical, stack, business
+    category: Mapped[str] = mapped_column(String, default="business")
+    is_active: Mapped[bool] = mapped_column(Integer, default=1)
+    # Приоритет (выше число = важнее)
+    priority: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str] = mapped_column(String)

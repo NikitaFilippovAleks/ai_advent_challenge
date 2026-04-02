@@ -8,6 +8,7 @@ from functools import lru_cache
 
 from app.modules.chat.service import ChatService
 from app.modules.context.service import ContextService
+from app.modules.invariants.repository import get_active_invariants
 from app.modules.profiles.repository import get_default_profile, get_profile
 from app.shared.llm.gigachat import GigaChatProvider
 
@@ -22,4 +23,5 @@ def get_chat_service() -> ChatService:
         context_service=context_service,
         get_profile_fn=get_profile,
         get_default_profile_fn=get_default_profile,
+        get_active_invariants_fn=get_active_invariants,
     )

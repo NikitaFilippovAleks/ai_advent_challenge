@@ -134,3 +134,20 @@ export interface StreamDelta {
   content: string;
   type: "content" | "tool_call" | "tool_result";
 }
+
+// --- Инварианты ---
+
+// Категории инвариантов
+export type InvariantCategory = "architecture" | "technical" | "stack" | "business";
+
+// Инвариант — правило, которое ассистент не может нарушить
+export interface Invariant {
+  id: string;
+  name: string;
+  description: string;
+  category: InvariantCategory;
+  is_active: boolean;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+}

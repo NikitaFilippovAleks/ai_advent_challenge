@@ -18,6 +18,7 @@ from app.core.database import init_db
 from app.modules.chat.router import router as chat_router
 from app.modules.context.router import router as context_router
 from app.modules.conversations.router import router as conversations_router
+from app.modules.invariants.router import router as invariants_router
 from app.modules.memory.router import router as memory_router
 from app.modules.profiles.router import router as profiles_router
 
@@ -39,6 +40,7 @@ app.add_middleware(
 )
 
 app.include_router(profiles_router)
+app.include_router(invariants_router)
 app.include_router(chat_router)
 app.include_router(context_router)
 app.include_router(conversations_router)

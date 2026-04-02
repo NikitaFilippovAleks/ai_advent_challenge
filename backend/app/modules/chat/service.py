@@ -26,17 +26,27 @@ from app.shared.llm.gigachat import GigaChatProvider
 class ChatService:
     """Оркестратор обработки чат-сообщений."""
 
+    # Маппинг категорий инвариантов на русские названия
+    _CATEGORY_LABELS = {
+        "architecture": "АРХИТЕКТУРА",
+        "technical": "ТЕХНИЧЕСКИЕ РЕШЕНИЯ",
+        "stack": "СТЕК",
+        "business": "БИЗНЕС-ПРАВИЛА",
+    }
+
     def __init__(
         self,
         llm: GigaChatProvider,
         context_service: ContextService,
         get_profile_fn: Callable[[str], Awaitable[dict | None]] | None = None,
         get_default_profile_fn: Callable[[], Awaitable[dict | None]] | None = None,
+        get_active_invariants_fn: Callable[[], Awaitable[list[dict]]] | None = None,
     ) -> None:
         self._llm = llm
         self._context = context_service
         self._get_profile = get_profile_fn
         self._get_default_profile = get_default_profile_fn
+        self._get_active_invariants = get_active_invariants_fn
 
     async def _get_system_prompt(self, conversation_id: str) -> str | None:
         """Получает system prompt из профиля диалога (явного или дефолтного)."""
@@ -60,6 +70,51 @@ class ChatService:
         if profile:
             return profile["system_prompt"]
         return None
+
+    async def _build_invariants_text(self) -> str | None:
+        """Формирует текст инвариантов для включения в system prompt."""
+        if not self._get_active_invariants:
+            return None
+
+        invariants = await self._get_active_invariants()
+        if not invariants:
+            return None
+
+        # Формируем список инвариантов с категориями
+        lines = []
+        for inv in invariants:
+            label = self._CATEGORY_LABELS.get(inv["category"], inv["category"].upper())
+            lines.append(f"[{label}] {inv['name']}: {inv['description']}")
+
+        invariants_text = "\n".join(lines)
+
+        return (
+            "ИНВАРИАНТЫ (ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА):\n"
+            "Ниже перечислены инварианты — правила, которые ты ОБЯЗАН соблюдать в каждом ответе.\n"
+            "Если запрос пользователя конфликтует с любым инвариантом, ты ДОЛЖЕН:\n"
+            "1. Отказать в выполнении запроса\n"
+            "2. Явно указать, какой инвариант нарушается (название и описание)\n"
+            "3. Объяснить, почему это нарушение\n"
+            "4. Предложить альтернативу в рамках инвариантов\n\n"
+            f"{invariants_text}"
+        )
+
+    def _merge_system_messages(self, messages: list[dict]) -> list[dict]:
+        """Объединяет все system-сообщения в одно первое (требование GigaChat API)."""
+        system_parts = []
+        other_messages = []
+
+        for msg in messages:
+            if msg["role"] == "system":
+                system_parts.append(msg["content"])
+            else:
+                other_messages.append(msg)
+
+        if not system_parts:
+            return other_messages
+
+        merged = {"role": "system", "content": "\n\n".join(system_parts)}
+        return [merged] + other_messages
 
     async def process_message(self, request: ChatRequest) -> ChatResponse:
         """Обрабатывает сообщение: сохраняет, строит контекст, вызывает LLM."""
@@ -90,6 +145,12 @@ class ChatService:
             system_prompt = await self._get_system_prompt(request.conversation_id)
             if system_prompt:
                 messages.insert(0, {"role": "system", "content": system_prompt})
+            # Инварианты — наивысший приоритет, вставляем первым system-блоком
+            invariants_text = await self._build_invariants_text()
+            if invariants_text:
+                messages.insert(0, {"role": "system", "content": invariants_text})
+            # GigaChat требует ровно одно system-сообщение первым — объединяем
+            messages = self._merge_system_messages(messages)
         else:
             messages = [m.model_dump() for m in request.messages]
 
@@ -171,6 +232,12 @@ class ChatService:
                 system_prompt = await self._get_system_prompt(request.conversation_id)
                 if system_prompt:
                     messages.insert(0, {"role": "system", "content": system_prompt})
+                # Инварианты — наивысший приоритет, вставляем первым system-блоком
+                invariants_text = await self._build_invariants_text()
+                if invariants_text:
+                    messages.insert(0, {"role": "system", "content": invariants_text})
+                # GigaChat требует ровно одно system-сообщение первым — объединяем
+                messages = self._merge_system_messages(messages)
             else:
                 messages = [m.model_dump() for m in request.messages]
 
