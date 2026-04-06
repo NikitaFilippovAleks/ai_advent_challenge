@@ -21,6 +21,7 @@ from app.modules.conversations.router import router as conversations_router
 from app.modules.invariants.router import router as invariants_router
 from app.modules.memory.router import router as memory_router
 from app.modules.profiles.router import router as profiles_router
+from app.modules.tasks.router import router as tasks_router
 
 
 @asynccontextmanager
@@ -45,3 +46,4 @@ app.include_router(chat_router)
 app.include_router(context_router)
 app.include_router(conversations_router)
 app.include_router(memory_router)
+app.include_router(tasks_router)

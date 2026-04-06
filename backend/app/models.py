@@ -43,6 +43,9 @@ class Conversation(Base):
     insights: Mapped[list["ShortTermInsight"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
+    tasks: Mapped[list["Task"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan"
+    )
 
 
 class Message(Base):
@@ -178,3 +181,24 @@ class Invariant(Base):
     priority: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[str] = mapped_column(String)
+
+
+class Task(Base):
+    """Задача с конечным автоматом состояний."""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE")
+    )
+    phase: Mapped[str] = mapped_column(String, default="planning")
+    previous_phase: Mapped[str | None] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(String, default="")
+    plan_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_step: Mapped[int] = mapped_column(Integer, default=0)
+    status_text: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[str] = mapped_column(String)
+    updated_at: Mapped[str] = mapped_column(String)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="tasks")

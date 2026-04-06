@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Message, ModelInfo, ContextStrategy } from "../types";
+import { Message, ModelInfo, ContextStrategy, TaskInfo } from "../types";
 import { streamMessage, getMessages, getStrategy, setStrategy } from "../api/chat";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
@@ -7,6 +7,8 @@ import FactsPanel from "./FactsPanel";
 import BranchPanel from "./BranchPanel";
 import MemoryPanel from "./MemoryPanel";
 import ProfileSelector from "./ProfileSelector";
+import TaskPanel from "./TaskPanel";
+import { getActiveTask } from "../api/tasks";
 
 interface Props {
   models: ModelInfo[];
@@ -33,6 +35,7 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   const [memoryRefreshTrigger, setMemoryRefreshTrigger] = useState(0);
   // Состояние сворачивания правой панели памяти
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(true);
+  const [activeTask, setActiveTask] = useState<TaskInfo | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -55,6 +58,9 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
       getStrategy(conversationId)
         .then(setContextStrategy)
         .catch(() => {});
+      getActiveTask(conversationId)
+        .then(setActiveTask)
+        .catch(() => setActiveTask(null));
     }
   }, [conversationId]);
 
@@ -116,9 +122,17 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
     }
   };
 
+  // Флаг: автоматическое продолжение (сообщение "Продолжай" не показывается в UI)
+  const autoSendRef = useRef(false);
+
   const handleSend = async (text: string) => {
-    const userMessage: Message = { role: "user", content: text };
-    const updatedMessages = [...messages, userMessage];
+    const isAuto = autoSendRef.current;
+    autoSendRef.current = false;
+
+    // Автоматические сообщения не показываем в UI
+    const updatedMessages = isAuto
+      ? messages
+      : [...messages, { role: "user" as const, content: text }];
 
     // Сбрасываем буфер
     streamBufferRef.current = "";
@@ -186,6 +200,21 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           setMemoryRefreshTrigger((prev) => prev + 1);
           setTimeout(() => setMemoryRefreshTrigger((prev) => prev + 1), 5000);
           setTimeout(() => setMemoryRefreshTrigger((prev) => prev + 1), 12000);
+          // Обновляем статус задачи после ответа LLM
+          if (conversationId) {
+            setTimeout(() => {
+              getActiveTask(conversationId)
+                .then((task) => {
+                  setActiveTask(task);
+                  // Автопродолжение: если задача в execution — отправляем следующий шаг
+                  if (task && task.phase === "execution") {
+                    autoSendRef.current = true;
+                    handleSend("Продолжай");
+                  }
+                })
+                .catch(() => {});
+            }, 1500);
+          }
         },
         onError: (error) => {
           if (rafIdRef.current !== null) {
@@ -312,6 +341,13 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
                 conversationId={conversationId}
                 messages={messages}
                 onBranchSwitch={handleBranchSwitch}
+              />
+            )}
+            {/* Панель задачи (FSM) — отображается при активной задаче */}
+            {activeTask && (
+              <TaskPanel
+                task={activeTask}
+                onTaskUpdate={setActiveTask}
               />
             )}
             <MessageList

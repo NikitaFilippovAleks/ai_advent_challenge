@@ -10,6 +10,7 @@ from app.modules.chat.service import ChatService
 from app.modules.context.service import ContextService
 from app.modules.invariants.repository import get_active_invariants
 from app.modules.profiles.repository import get_default_profile, get_profile
+from app.modules.tasks.service import TaskService
 from app.shared.llm.gigachat import GigaChatProvider
 
 
@@ -18,10 +19,12 @@ def get_chat_service() -> ChatService:
     """Создаёт и кэширует ChatService с GigaChatProvider и ContextService."""
     llm = GigaChatProvider()
     context_service = ContextService(llm=llm)
+    task_service = TaskService(llm=llm)
     return ChatService(
         llm=llm,
         context_service=context_service,
         get_profile_fn=get_profile,
         get_default_profile_fn=get_default_profile,
         get_active_invariants_fn=get_active_invariants,
+        task_service=task_service,
     )

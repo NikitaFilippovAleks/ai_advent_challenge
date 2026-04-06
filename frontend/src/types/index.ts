@@ -151,3 +151,28 @@ export interface Invariant {
   created_at: string;
   updated_at: string;
 }
+
+// --- Задачи (Task FSM) ---
+
+// Фазы задачи
+export type TaskPhase = "planning" | "execution" | "validation" | "done" | "paused" | "cancelled";
+
+// Шаг плана задачи
+export interface TaskStep {
+  description: string;
+  status: "pending" | "done";
+}
+
+// Задача
+export interface TaskInfo {
+  id: string;
+  conversation_id: string;
+  phase: TaskPhase;
+  previous_phase: TaskPhase | null;
+  title: string;
+  steps: TaskStep[] | null;
+  current_step: number;
+  status_text: string;
+  created_at: string;
+  updated_at: string;
+}

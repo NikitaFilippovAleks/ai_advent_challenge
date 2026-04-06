@@ -41,12 +41,14 @@ class ChatService:
         get_profile_fn: Callable[[str], Awaitable[dict | None]] | None = None,
         get_default_profile_fn: Callable[[], Awaitable[dict | None]] | None = None,
         get_active_invariants_fn: Callable[[], Awaitable[list[dict]]] | None = None,
+        task_service=None,
     ) -> None:
         self._llm = llm
         self._context = context_service
         self._get_profile = get_profile_fn
         self._get_default_profile = get_default_profile_fn
         self._get_active_invariants = get_active_invariants_fn
+        self._task_service = task_service
 
     async def _get_system_prompt(self, conversation_id: str) -> str | None:
         """Получает system prompt из профиля диалога (явного или дефолтного)."""
@@ -99,6 +101,35 @@ class ChatService:
             f"{invariants_text}"
         )
 
+    async def _build_task_prompt(self, conversation_id: str, user_text: str) -> tuple[str | None, dict | None]:
+        """Возвращает (task_system_prompt, active_task) или (None, None).
+
+        Если активной задачи нет — классифицирует сообщение.
+        При classification='task' создаёт задачу.
+        """
+        if not self._task_service:
+            return None, None
+
+        active_task = await self._task_service.get_active(conversation_id)
+
+        if not active_task:
+            msg_type = await self._task_service.classify_message(user_text)
+            if msg_type == "task":
+                # Используем первые 100 символов как название задачи
+                title = user_text[:100].strip()
+                active_task = await self._task_service.create(conversation_id, title)
+            else:
+                return None, None
+
+        # Обрабатываем сообщение пользователя для автопереходов
+        # (например, "да" при готовом плане → execution)
+        updated = await self._task_service.process_user_message(active_task, user_text)
+        if updated:
+            active_task = updated
+
+        prompt = self._task_service.build_system_prompt(active_task)
+        return prompt, active_task
+
     def _merge_system_messages(self, messages: list[dict]) -> list[dict]:
         """Объединяет все system-сообщения в одно первое (требование GigaChat API)."""
         system_parts = []
@@ -149,10 +180,19 @@ class ChatService:
             invariants_text = await self._build_invariants_text()
             if invariants_text:
                 messages.insert(0, {"role": "system", "content": invariants_text})
+            # Задачи — промпт текущей фазы FSM
+            task_prompt, active_task = await self._build_task_prompt(
+                request.conversation_id, user_msg.content
+            )
+            if task_prompt:
+                # Вставляем после всех system-сообщений
+                sys_count = len([m for m in messages if m["role"] == "system"])
+                messages.insert(sys_count, {"role": "system", "content": task_prompt})
             # GigaChat требует ровно одно system-сообщение первым — объединяем
             messages = self._merge_system_messages(messages)
         else:
             messages = [m.model_dump() for m in request.messages]
+            active_task = None
 
         result = await self._llm.chat(
             messages, model=request.model, temperature=request.temperature
@@ -190,6 +230,12 @@ class ChatService:
                     request.conversation_id, user_msg.content, result["content"]
                 )
             )
+
+            # Обработка FSM — автоматические переходы
+            if self._task_service and active_task:
+                await self._task_service.process_llm_response(
+                    active_task, result["content"]
+                )
 
         return ChatResponse(
             content=result["content"],
@@ -236,10 +282,18 @@ class ChatService:
                 invariants_text = await self._build_invariants_text()
                 if invariants_text:
                     messages.insert(0, {"role": "system", "content": invariants_text})
+                # Задачи — промпт текущей фазы FSM
+                task_prompt, active_task = await self._build_task_prompt(
+                    request.conversation_id, user_text
+                )
+                if task_prompt:
+                    sys_count = len([m for m in messages if m["role"] == "system"])
+                    messages.insert(sys_count, {"role": "system", "content": task_prompt})
                 # GigaChat требует ровно одно system-сообщение первым — объединяем
                 messages = self._merge_system_messages(messages)
             else:
                 messages = [m.model_dump() for m in request.messages]
+                active_task = None
 
             async for event in self._llm.stream(
                 messages, model=request.model, temperature=request.temperature
@@ -261,6 +315,7 @@ class ChatService:
                     self._post_stream_processing(
                         request.conversation_id, strategy, branch_id,
                         user_text, full_response, usage_data,
+                        active_task=active_task if "active_task" in locals() else None,
                     )
                 )
         except Exception as e:
@@ -274,6 +329,7 @@ class ChatService:
     async def _post_stream_processing(
         self, conversation_id: str, strategy: str, branch_id: int | None,
         user_text: str, full_response: str, usage_data: dict | None,
+        active_task: dict | None = None,
     ) -> None:
         """Фоновая задача: сохранение ответа, заголовок, факты, память.
 
@@ -305,6 +361,12 @@ class ChatService:
             await self._context.extract_memories(
                 conversation_id, user_text, full_response,
             )
+
+            # Обработка FSM — автоматические переходы
+            if self._task_service and active_task:
+                await self._task_service.process_llm_response(
+                    active_task, full_response
+                )
         except Exception as e:
             logger.error("Фоновый post-processing упал: %s", e, exc_info=True)
 

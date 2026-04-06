@@ -37,7 +37,7 @@ npm run build     # TypeScript + Vite production сборка
 Правило импортов: каждый слой импортирует только из слоёв ниже. Модули не импортируют друг друга (кроме `dependencies.py` для DI).
 
 - `backend/app/main.py` — Composition Root: создаёт FastAPI, подключает роутеры модулей
-- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory, UserProfile, Invariant
+- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory, UserProfile, Invariant, Task
 - `backend/app/core/config.py` — pydantic-settings, загружает переменные из `.env`
 - `backend/app/core/database.py` — SQLAlchemy async engine, session factory, init_db, миграции
 - `backend/app/core/exceptions.py` — базовые исключения (NotFoundError, ValidationError)
@@ -50,6 +50,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/agent/` — каркас агентной архитектуры (runner, types, tools, dependencies)
 - `backend/app/modules/profiles/` — CRUD профилей пользователя (system prompt для LLM), привязка к диалогам; profiles_router регистрируется первым в main.py (чтобы /default не конфликтовал с /{id})
 - `backend/app/modules/invariants/` — глобальные инварианты (правила, которые ассистент обязан соблюдать): CRUD, toggle, инъекция в system prompt LLM
+- `backend/app/modules/tasks/` — конечный автомат задач (FSM): классификация сообщений, фазы planning→execution→validation→done, пауза/отмена (state_machine, service, repository, router, schemas)
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
@@ -59,6 +60,8 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/components/MemoryPanel.tsx` — панель трёхуровневой памяти (стратегия memory)
 - `frontend/src/components/ProfilesModal.tsx` — модальное окно управления профилями (CRUD + выбор дефолтного)
 - `frontend/src/components/InvariantsModal.tsx` — модальное окно управления инвариантами (CRUD + toggle вкл/выкл)
+- `frontend/src/components/TaskPanel.tsx` — панель статуса задачи: фаза, прогресс, пауза/отмена
+- `frontend/src/api/tasks.ts` — API-клиент: активная задача, переходы фаз, история
 - `frontend/src/components/ProfileSelector.tsx` — выпадающий список выбора профиля для конкретного диалога
 - `frontend/src/api/chat.ts` — API-клиент: чат, стриминг, стратегии, факты, ветки
 - `frontend/src/api/profiles.ts` — API-клиент: CRUD профилей, привязка профиля к диалогу
@@ -149,6 +152,20 @@ DELETE /api/invariants/{id}
 
 PATCH /api/invariants/{id}/toggle
 Response: InvariantOut (переключает is_active)
+
+GET /api/tasks/{conversation_id}/active
+Response: TaskOut | null
+
+PUT /api/tasks/{task_id}/transition
+Body: { phase: string }
+Response: TaskOut | 400
+
+PUT /api/tasks/{task_id}/plan
+Body: { steps: [{ description: string }] }
+Response: TaskOut
+
+GET /api/tasks/{conversation_id}/history
+Response: TaskOut[]
 ```
 
 ## Стратегии управления контекстом

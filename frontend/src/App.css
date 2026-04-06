@@ -1467,3 +1467,77 @@ body {
   background: #35354e;
   color: #ccc;
 }
+/* --- Task Panel (FSM) --- */
+
+.task-panel {
+  padding: 6px 12px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 0.8rem;
+}
+
+.task-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-phase-indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.task-status-text {
+  flex: 1;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-panel-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.task-btn {
+  padding: 2px 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.task-btn:hover {
+  background: #f0f0f0;
+}
+
+.task-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.task-btn-cancel:hover {
+  background: #ffe0e0;
+  border-color: #e0a0a0;
+}
+
+.task-progress-bar {
+  margin-top: 4px;
+  height: 3px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.task-progress-fill {
+  height: 100%;
+  background: #4a76a8;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
