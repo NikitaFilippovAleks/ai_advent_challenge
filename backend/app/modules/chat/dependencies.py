@@ -6,6 +6,7 @@
 
 from functools import lru_cache
 
+from app.modules.agent.dependencies import get_agent_runner
 from app.modules.chat.service import ChatService
 from app.modules.context.service import ContextService
 from app.modules.invariants.repository import get_active_invariants
@@ -16,10 +17,11 @@ from app.shared.llm.gigachat import GigaChatProvider
 
 @lru_cache
 def get_chat_service() -> ChatService:
-    """Создаёт и кэширует ChatService с GigaChatProvider и ContextService."""
+    """Создаёт и кэширует ChatService с GigaChatProvider, ContextService и AgentRunner."""
     llm = GigaChatProvider()
     context_service = ContextService(llm=llm)
     task_service = TaskService(llm=llm)
+    agent_runner = get_agent_runner()
     return ChatService(
         llm=llm,
         context_service=context_service,
@@ -27,4 +29,5 @@ def get_chat_service() -> ChatService:
         get_default_profile_fn=get_default_profile,
         get_active_invariants_fn=get_active_invariants,
         task_service=task_service,
+        agent_runner=agent_runner,
     )

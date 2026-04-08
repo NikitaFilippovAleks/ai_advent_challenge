@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
+from app.modules.agent.runner import AgentRunner
 from app.modules.chat.schemas import ChatRequest, ChatResponse
 from app.modules.context.repository import get_active_branch_id, get_conversation_strategy
 from app.modules.context.service import ContextService
@@ -42,6 +43,7 @@ class ChatService:
         get_default_profile_fn: Callable[[], Awaitable[dict | None]] | None = None,
         get_active_invariants_fn: Callable[[], Awaitable[list[dict]]] | None = None,
         task_service=None,
+        agent_runner: AgentRunner | None = None,
     ) -> None:
         self._llm = llm
         self._context = context_service
@@ -49,6 +51,7 @@ class ChatService:
         self._get_default_profile = get_default_profile_fn
         self._get_active_invariants = get_active_invariants_fn
         self._task_service = task_service
+        self._agent = agent_runner
 
     async def _get_system_prompt(self, conversation_id: str) -> str | None:
         """Получает system prompt из профиля диалога (явного или дефолтного)."""
@@ -194,9 +197,15 @@ class ChatService:
             messages = [m.model_dump() for m in request.messages]
             active_task = None
 
-        result = await self._llm.chat(
-            messages, model=request.model, temperature=request.temperature
-        )
+        # Используем AgentRunner если он есть (поддержка MCP-инструментов)
+        if self._agent:
+            result = await self._agent.run(
+                messages, model=request.model, temperature=request.temperature
+            )
+        else:
+            result = await self._llm.chat(
+                messages, model=request.model, temperature=request.temperature
+            )
 
         # Сохраняем ответ ассистента
         if request.conversation_id:
@@ -295,9 +304,13 @@ class ChatService:
                 messages = [m.model_dump() for m in request.messages]
                 active_task = None
 
-            async for event in self._llm.stream(
-                messages, model=request.model, temperature=request.temperature
-            ):
+            # Используем AgentRunner если он есть (поддержка MCP-инструментов)
+            stream_source = (
+                self._agent.run_stream(messages, model=request.model, temperature=request.temperature)
+                if self._agent
+                else self._llm.stream(messages, model=request.model, temperature=request.temperature)
+            )
+            async for event in stream_source:
                 event_type = event["type"]
                 event_data = json.dumps(event["data"], ensure_ascii=False)
 
@@ -306,6 +319,7 @@ class ChatService:
                 elif event_type == "usage":
                     usage_data = event["data"]
 
+                # Пробрасываем все события включая tool_call и tool_result
                 yield f"event: {event_type}\ndata: {event_data}\n\n"
 
             # Всё post-processing — в фоновой задаче, чтобы генератор завершился

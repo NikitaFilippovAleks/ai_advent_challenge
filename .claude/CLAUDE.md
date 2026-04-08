@@ -47,7 +47,8 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/conversations/` — CRUD диалогов (router, repository, schemas)
 - `backend/app/modules/context/` — стратегии контекста, факты, ветки (router, service, repository, schemas, strategies/)
 - `backend/app/modules/memory/` — трёхуровневая память ассистента (router, service, repository, schemas, dependencies)
-- `backend/app/modules/agent/` — каркас агентной архитектуры (runner, types, tools, dependencies)
+- `backend/app/modules/agent/` — агентная архитектура с MCP-интеграцией: MCPManager управляет подключениями к MCP-серверам (stdio), AgentRunner реализует agent loop (LLM → function_call → tool → повтор), GigaChat адаптер конвертирует MCP ↔ GigaChat форматы; REST API для управления серверами (router, mcp_manager, mcp_config, gigachat_adapter, schemas, runner, tools, types, dependencies)
+- `backend/mcp_servers/git_server.py` — MCP-сервер для Git (4 инструмента: git_status, git_log, git_diff, git_branches), запускается как subprocess через stdio
 - `backend/app/modules/profiles/` — CRUD профилей пользователя (system prompt для LLM), привязка к диалогам; profiles_router регистрируется первым в main.py (чтобы /default не конфликтовал с /{id})
 - `backend/app/modules/invariants/` — глобальные инварианты (правила, которые ассистент обязан соблюдать): CRUD, toggle, инъекция в system prompt LLM
 - `backend/app/modules/tasks/` — конечный автомат задач (FSM): классификация сообщений, фазы planning→execution→validation→done, пауза/отмена (state_machine, service, repository, router, schemas)
@@ -61,7 +62,9 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/components/ProfilesModal.tsx` — модальное окно управления профилями (CRUD + выбор дефолтного)
 - `frontend/src/components/InvariantsModal.tsx` — модальное окно управления инвариантами (CRUD + toggle вкл/выкл)
 - `frontend/src/components/TaskPanel.tsx` — панель статуса задачи: фаза, прогресс, пауза/отмена
+- `frontend/src/components/MCPPanel.tsx` — панель управления MCP-серверами: подключение/отключение, список инструментов
 - `frontend/src/api/tasks.ts` — API-клиент: активная задача, переходы фаз, история
+- `frontend/src/api/mcp.ts` — API-клиент: CRUD MCP-серверов, connect/disconnect, список инструментов
 - `frontend/src/components/ProfileSelector.tsx` — выпадающий список выбора профиля для конкретного диалога
 - `frontend/src/api/chat.ts` — API-клиент: чат, стриминг, стратегии, факты, ветки
 - `frontend/src/api/profiles.ts` — API-клиент: CRUD профилей, привязка профиля к диалогу
@@ -70,7 +73,9 @@ npm run build     # TypeScript + Vite production сборка
 
 **Взаимодействие:** Фронтенд → Vite proxy (`/api` → `http://backend:8000`) → FastAPI → GigaChat SDK
 
-**Стриминг:** `POST /api/chat/stream` → SSE-события (delta, usage, done, error) → `fetch` + `ReadableStream`
+**Стриминг:** `POST /api/chat/stream` → SSE-события (delta, tool_call, tool_result, usage, done, error) → `fetch` + `ReadableStream`
+
+**MCP-серверы:** Конфигурация в `backend/data/mcp_servers.json`. При старте приложения MCPManager автоматически подключает серверы с `enabled: true`. Агент использует инструменты через GigaChat function calling.
 
 **Порты:** Backend 8000, Frontend 5173
 
@@ -166,6 +171,24 @@ Response: TaskOut
 
 GET /api/tasks/{conversation_id}/history
 Response: TaskOut[]
+
+GET /api/mcp/servers
+Response: [{ name, command, args, enabled, connected, tool_count }]
+
+POST /api/mcp/servers
+Body: { name, command, args? }
+Response: MCPServerStatus
+
+DELETE /api/mcp/servers/{name}
+
+POST /api/mcp/servers/{name}/connect
+Response: { status: "connected", tools: int }
+
+POST /api/mcp/servers/{name}/disconnect
+Response: { status: "disconnected" }
+
+GET /api/mcp/tools
+Response: [{ server, name, description }]
 ```
 
 ## Стратегии управления контекстом

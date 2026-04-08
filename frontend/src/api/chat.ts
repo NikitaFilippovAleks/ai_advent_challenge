@@ -9,6 +9,8 @@ import {
   MemoryState,
   Message,
   ModelInfo,
+  ToolCallEvent,
+  ToolResultEvent,
   UsageInfo,
 } from "../types";
 
@@ -33,6 +35,8 @@ export interface StreamCallbacks {
   onUsage: (usage: UsageInfo) => void;
   onDone: () => void;
   onError: (error: Error) => void;
+  onToolCall?: (event: ToolCallEvent) => void;
+  onToolResult?: (event: ToolResultEvent) => void;
 }
 
 // Стриминг ответа через SSE (fetch + ReadableStream)
@@ -101,6 +105,10 @@ export async function streamMessage(
           callbacks.onDone();
         } else if (eventType === "error") {
           callbacks.onError(new Error(data.message));
+        } else if (eventType === "tool_call") {
+          callbacks.onToolCall?.(data);
+        } else if (eventType === "tool_result") {
+          callbacks.onToolResult?.(data);
         }
       }
     }

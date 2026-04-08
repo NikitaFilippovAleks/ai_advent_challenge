@@ -135,6 +135,37 @@ export interface StreamDelta {
   type: "content" | "tool_call" | "tool_result";
 }
 
+// --- MCP-серверы ---
+
+// Статус MCP-сервера
+export interface MCPServer {
+  name: string;
+  command: string;
+  args: string[];
+  enabled: boolean;
+  connected: boolean;
+  tool_count: number;
+}
+
+// Инструмент MCP-сервера
+export interface MCPTool {
+  server: string;
+  name: string;
+  description: string;
+}
+
+// Событие вызова инструмента (SSE tool_call)
+export interface ToolCallEvent {
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+// Событие результата инструмента (SSE tool_result)
+export interface ToolResultEvent {
+  name: string;
+  content: string;
+}
+
 // --- Инварианты ---
 
 // Категории инвариантов

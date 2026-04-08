@@ -15,6 +15,8 @@ logging.getLogger("app").setLevel(logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import init_db
+from app.modules.agent.dependencies import get_mcp_manager
+from app.modules.agent.router import router as agent_router
 from app.modules.chat.router import router as chat_router
 from app.modules.context.router import router as context_router
 from app.modules.conversations.router import router as conversations_router
@@ -23,12 +25,19 @@ from app.modules.memory.router import router as memory_router
 from app.modules.profiles.router import router as profiles_router
 from app.modules.tasks.router import router as tasks_router
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Инициализация БД при старте приложения."""
+    """Инициализация БД и подключение MCP-серверов при старте."""
     await init_db()
+    # Подключаем MCP-серверы с enabled=true
+    mcp = get_mcp_manager()
+    await mcp.auto_connect()
     yield
+    # Отключаем все MCP-серверы при остановке
+    await mcp.shutdown()
 
 
 app = FastAPI(title="GigaChat API", lifespan=lifespan)
@@ -47,3 +56,4 @@ app.include_router(context_router)
 app.include_router(conversations_router)
 app.include_router(memory_router)
 app.include_router(tasks_router)
+app.include_router(agent_router)

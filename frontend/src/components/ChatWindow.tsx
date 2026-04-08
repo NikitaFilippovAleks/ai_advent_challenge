@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { Message, ModelInfo, ContextStrategy, TaskInfo } from "../types";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Message, ModelInfo, ContextStrategy, TaskInfo, ToolCallEvent, ToolResultEvent } from "../types";
 import { streamMessage, getMessages, getStrategy, setStrategy } from "../api/chat";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import FactsPanel from "./FactsPanel";
 import BranchPanel from "./BranchPanel";
 import MemoryPanel from "./MemoryPanel";
+import MCPPanel from "./MCPPanel";
 import ProfileSelector from "./ProfileSelector";
 import TaskPanel from "./TaskPanel";
 import { getActiveTask } from "../api/tasks";
@@ -36,6 +37,10 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   // Состояние сворачивания правой панели памяти
   const [memoryPanelOpen, setMemoryPanelOpen] = useState(true);
   const [activeTask, setActiveTask] = useState<TaskInfo | null>(null);
+  // Панель MCP-серверов
+  const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
+  // Лог tool calls текущего стриминга (для отображения в чате)
+  const toolEventsRef = useRef<Array<{ type: "call" | "result"; data: ToolCallEvent | ToolResultEvent }>>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -71,23 +76,6 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
         cancelAnimationFrame(rafIdRef.current);
       }
     };
-  }, []);
-
-  // Flush буфера в стейт — вызывается из rAF
-  const flushBuffer = useCallback(() => {
-    const content = streamBufferRef.current;
-    const elapsed = Date.now() - startTimeRef.current;
-    setMessages((prev) => {
-      const updated = [...prev];
-      const last = updated[updated.length - 1];
-      updated[updated.length - 1] = {
-        ...last,
-        content,
-        responseTime: elapsed,
-      };
-      return updated;
-    });
-    rafIdRef.current = null;
   }, []);
 
   // Суммарные токены за весь диалог
@@ -134,9 +122,10 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
       ? messages
       : [...messages, { role: "user" as const, content: text }];
 
-    // Сбрасываем буфер
+    // Сбрасываем буфер и лог tool calls
     streamBufferRef.current = "";
     startTimeRef.current = Date.now();
+    toolEventsRef.current = [];
 
     setMessages([...updatedMessages, { role: "assistant", content: "" }]);
     setIsLoading(true);
@@ -162,7 +151,34 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
         onDelta: (content) => {
           streamBufferRef.current += content;
           if (rafIdRef.current === null) {
-            rafIdRef.current = requestAnimationFrame(flushBuffer);
+            rafIdRef.current = requestAnimationFrame(() => {
+              const text = streamBufferRef.current;
+              const elapsed = Date.now() - startTimeRef.current;
+              // Если были tool calls — показываем их перед текстом ответа
+              const prefix = toolEventsRef.current.length > 0
+                ? toolEventsRef.current
+                    .map((e) => {
+                      if (e.type === "call") {
+                        const tc = e.data as ToolCallEvent;
+                        return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
+                      }
+                      const tr = e.data as ToolResultEvent;
+                      return `📋 Результат ${tr.name}:\n${tr.content}`;
+                    })
+                    .join("\n\n") + "\n\n---\n\n"
+                : "";
+              setMessages((prev) => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                updated[updated.length - 1] = {
+                  ...last,
+                  content: prefix + text,
+                  responseTime: elapsed,
+                };
+                return updated;
+              });
+              rafIdRef.current = null;
+            });
           }
         },
         onUsage: (usage) => {
@@ -181,12 +197,25 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           }
           const finalContent = streamBufferRef.current;
           const elapsed = Date.now() - startTimeRef.current;
+          // Если были tool calls — показываем их перед финальным текстом
+          const prefix = toolEventsRef.current.length > 0
+            ? toolEventsRef.current
+                .map((e) => {
+                  if (e.type === "call") {
+                    const tc = e.data as ToolCallEvent;
+                    return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
+                  }
+                  const tr = e.data as ToolResultEvent;
+                  return `📋 Результат ${tr.name}:\n${tr.content}`;
+                })
+                .join("\n\n") + "\n\n---\n\n"
+            : "";
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated[updated.length - 1];
             updated[updated.length - 1] = {
               ...last,
-              content: finalContent,
+              content: prefix + finalContent,
               responseTime: elapsed,
             };
             return updated;
@@ -215,6 +244,47 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
                 .catch(() => {});
             }, 1500);
           }
+        },
+        onToolCall: (event: ToolCallEvent) => {
+          toolEventsRef.current.push({ type: "call", data: event });
+          // Обновляем контент ассистентского сообщения — показываем вызов инструмента
+          const toolInfo = toolEventsRef.current
+            .map((e) => {
+              if (e.type === "call") {
+                const tc = e.data as ToolCallEvent;
+                return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
+              }
+              const tr = e.data as ToolResultEvent;
+              return `📋 Результат ${tr.name}:\n${tr.content}`;
+            })
+            .join("\n\n");
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            updated[updated.length - 1] = { ...last, content: toolInfo + "\n\n⏳ Думаю..." };
+            return updated;
+          });
+        },
+        onToolResult: (event: ToolResultEvent) => {
+          toolEventsRef.current.push({ type: "result", data: event });
+          const toolInfo = toolEventsRef.current
+            .map((e) => {
+              if (e.type === "call") {
+                const tc = e.data as ToolCallEvent;
+                return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
+              }
+              const tr = e.data as ToolResultEvent;
+              return `📋 Результат ${tr.name}:\n${tr.content}`;
+            })
+            .join("\n\n");
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            updated[updated.length - 1] = { ...last, content: toolInfo + "\n\n⏳ Думаю..." };
+            return updated;
+          });
+          // Сбрасываем буфер — после tool calls пойдёт финальный текст
+          streamBufferRef.current = "";
         },
         onError: (error) => {
           if (rafIdRef.current !== null) {
@@ -313,6 +383,15 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
               conversationId={conversationId}
             />
           )}
+          {/* Кнопка MCP-серверов */}
+          <button
+            className="memory-toggle-btn"
+            onClick={() => setMcpPanelOpen((prev) => !prev)}
+            title={mcpPanelOpen ? "Скрыть MCP" : "Показать MCP"}
+            style={{ marginRight: "4px" }}
+          >
+            {mcpPanelOpen ? "▶" : "◀"} MCP
+          </button>
           {/* Кнопка сворачивания/разворачивания панели памяти */}
           {conversationId && (
             <button
@@ -364,6 +443,12 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
             )}
             <MessageInput onSend={handleSend} disabled={isLoading} />
           </div>
+          {/* Панель MCP-серверов (сворачиваемая) */}
+          {mcpPanelOpen && (
+            <div className="memory-panel">
+              <MCPPanel />
+            </div>
+          )}
           {/* Панель памяти — ВСЕГДА справа от чата (сворачиваемая) */}
           {memoryPanelOpen && (
             <MemoryPanel

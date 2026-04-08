@@ -17,11 +17,13 @@ class BaseLLMProvider(ABC):
         messages: list[dict],
         model: str | None = None,
         temperature: float | None = None,
+        functions: list | None = None,
     ) -> dict:
         """Отправляет сообщения и возвращает полный ответ.
 
         Returns:
-            dict с ключами: content (str), usage (dict | None)
+            dict с ключами: content (str), usage (dict | None),
+            function_call (dict | None) — если LLM вызвал функцию
         """
         ...
 
