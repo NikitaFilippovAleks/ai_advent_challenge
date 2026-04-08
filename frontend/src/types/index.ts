@@ -207,3 +207,32 @@ export interface TaskInfo {
   created_at: string;
   updated_at: string;
 }
+
+// --- Планировщик задач ---
+
+// Задача планировщика
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  tool_name: string;
+  tool_args: Record<string, unknown>;
+  cron_expression: string;
+  summary_cron: string | null;
+  status: string;
+  results_count: number;
+  created_at: string;
+}
+
+// Результат сбора данных
+export interface SchedulerResult {
+  collected_at: string;
+  data: string;
+}
+
+// Сгенерированная сводка
+export interface SchedulerSummary {
+  summary: string;
+  period_start: string;
+  period_end: string;
+  created_at: string;
+}

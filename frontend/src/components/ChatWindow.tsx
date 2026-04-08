@@ -7,6 +7,7 @@ import FactsPanel from "./FactsPanel";
 import BranchPanel from "./BranchPanel";
 import MemoryPanel from "./MemoryPanel";
 import MCPPanel from "./MCPPanel";
+import SchedulerPanel from "./SchedulerPanel";
 import ProfileSelector from "./ProfileSelector";
 import TaskPanel from "./TaskPanel";
 import { getActiveTask } from "../api/tasks";
@@ -39,6 +40,8 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   const [activeTask, setActiveTask] = useState<TaskInfo | null>(null);
   // Панель MCP-серверов
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
+  // Панель планировщика
+  const [schedulerPanelOpen, setSchedulerPanelOpen] = useState(false);
   // Лог tool calls текущего стриминга (для отображения в чате)
   const toolEventsRef = useRef<Array<{ type: "call" | "result"; data: ToolCallEvent | ToolResultEvent }>>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -392,6 +395,15 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           >
             {mcpPanelOpen ? "▶" : "◀"} MCP
           </button>
+          {/* Кнопка планировщика */}
+          <button
+            className="memory-toggle-btn"
+            onClick={() => setSchedulerPanelOpen((prev) => !prev)}
+            title={schedulerPanelOpen ? "Скрыть планировщик" : "Показать планировщик"}
+            style={{ marginRight: "4px" }}
+          >
+            {schedulerPanelOpen ? "▶" : "◀"} Расписание
+          </button>
           {/* Кнопка сворачивания/разворачивания панели памяти */}
           {conversationId && (
             <button
@@ -447,6 +459,12 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           {mcpPanelOpen && (
             <div className="memory-panel">
               <MCPPanel />
+            </div>
+          )}
+          {/* Панель планировщика (сворачиваемая) */}
+          {schedulerPanelOpen && (
+            <div className="memory-panel">
+              <SchedulerPanel />
             </div>
           )}
           {/* Панель памяти — ВСЕГДА справа от чата (сворачиваемая) */}

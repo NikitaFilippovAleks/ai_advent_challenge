@@ -15,7 +15,7 @@ logging.getLogger("app").setLevel(logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import init_db
-from app.modules.agent.dependencies import get_mcp_manager
+from app.modules.agent.dependencies import get_agent_runner, get_mcp_manager
 from app.modules.agent.router import router as agent_router
 from app.modules.chat.router import router as chat_router
 from app.modules.context.router import router as context_router
@@ -23,6 +23,8 @@ from app.modules.conversations.router import router as conversations_router
 from app.modules.invariants.router import router as invariants_router
 from app.modules.memory.router import router as memory_router
 from app.modules.profiles.router import router as profiles_router
+from app.modules.scheduler.dependencies import get_scheduler_service
+from app.modules.scheduler.router import router as scheduler_router
 from app.modules.tasks.router import router as tasks_router
 
 logger = logging.getLogger(__name__)
@@ -35,7 +37,13 @@ async def lifespan(app: FastAPI):
     # Подключаем MCP-серверы с enabled=true
     mcp = get_mcp_manager()
     await mcp.auto_connect()
+    # Запускаем планировщик задач
+    scheduler_svc = get_scheduler_service()
+    await scheduler_svc.start(mcp, get_agent_runner())
     yield
+    # Останавливаем планировщик
+    scheduler_svc = get_scheduler_service()
+    await scheduler_svc.stop()
     # Отключаем все MCP-серверы при остановке
     await mcp.shutdown()
 
@@ -57,3 +65,4 @@ app.include_router(conversations_router)
 app.include_router(memory_router)
 app.include_router(tasks_router)
 app.include_router(agent_router)
+app.include_router(scheduler_router)

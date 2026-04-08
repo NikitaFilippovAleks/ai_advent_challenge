@@ -52,6 +52,8 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/profiles/` — CRUD профилей пользователя (system prompt для LLM), привязка к диалогам; profiles_router регистрируется первым в main.py (чтобы /default не конфликтовал с /{id})
 - `backend/app/modules/invariants/` — глобальные инварианты (правила, которые ассистент обязан соблюдать): CRUD, toggle, инъекция в system prompt LLM
 - `backend/app/modules/tasks/` — конечный автомат задач (FSM): классификация сообщений, фазы planning→execution→validation→done, пауза/отмена (state_machine, service, repository, router, schemas)
+- `backend/app/modules/scheduler/` — планировщик задач с периодическим выполнением: APScheduler, сбор данных через MCPManager, генерация сводок через AgentRunner (service, repository, router, schemas, dependencies)
+- `backend/mcp_servers/scheduler_server.py` — MCP-сервер планировщика (5 инструментов: create_scheduled_task, list_scheduled_tasks, get_task_results, get_task_summary, cancel_scheduled_task), отдельная БД scheduler.db
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
@@ -63,6 +65,8 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/components/InvariantsModal.tsx` — модальное окно управления инвариантами (CRUD + toggle вкл/выкл)
 - `frontend/src/components/TaskPanel.tsx` — панель статуса задачи: фаза, прогресс, пауза/отмена
 - `frontend/src/components/MCPPanel.tsx` — панель управления MCP-серверами: подключение/отключение, список инструментов
+- `frontend/src/components/SchedulerPanel.tsx` — панель планировщика: задачи, результаты сбора, сводки, управление (пауза/удаление)
+- `frontend/src/api/scheduler.ts` — API-клиент: задачи, результаты, сводки, пауза/возобновление/удаление
 - `frontend/src/api/tasks.ts` — API-клиент: активная задача, переходы фаз, история
 - `frontend/src/api/mcp.ts` — API-клиент: CRUD MCP-серверов, connect/disconnect, список инструментов
 - `frontend/src/components/ProfileSelector.tsx` — выпадающий список выбора профиля для конкретного диалога
@@ -189,6 +193,27 @@ Response: { status: "disconnected" }
 
 GET /api/mcp/tools
 Response: [{ server, name, description }]
+
+GET /api/scheduler/tasks
+Response: [{ id, name, tool_name, tool_args, cron_expression, summary_cron, status, results_count, created_at }]
+
+GET /api/scheduler/tasks/{id}/results?limit=10
+Response: [{ collected_at, data }]
+
+GET /api/scheduler/tasks/{id}/summary
+Response: { summary, period_start, period_end, created_at } | null
+
+POST /api/scheduler/tasks/{id}/summarize
+Response: { summary, period_start, period_end, created_at }
+
+PUT /api/scheduler/tasks/{id}/pause
+Response: { status: "paused" }
+
+PUT /api/scheduler/tasks/{id}/resume
+Response: { status: "active" }
+
+DELETE /api/scheduler/tasks/{id}
+Response: { status: "deleted" }
 ```
 
 ## Стратегии управления контекстом
@@ -209,7 +234,7 @@ Response: [{ server, name, description }]
 
 ## Стек
 
-- **Backend:** Python 3.12, FastAPI, uvicorn, gigachat SDK, pydantic-settings, SQLAlchemy 2.0 async + aiosqlite
+- **Backend:** Python 3.12, FastAPI, uvicorn, gigachat SDK, pydantic-settings, SQLAlchemy 2.0 async + aiosqlite, APScheduler 3.x, croniter
 - **Frontend:** React 19, TypeScript 5.6, Vite 6
 - **Infra:** Docker, Docker Compose
 
