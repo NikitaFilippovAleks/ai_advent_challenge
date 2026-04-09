@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Message, ModelInfo, ContextStrategy, TaskInfo, ToolCallEvent, ToolResultEvent } from "../types";
+import { Message, ModelInfo, ContextStrategy, TaskInfo } from "../types";
+import type { ToolCallEvent, ToolResultEvent } from "../types";
 import { streamMessage, getMessages, getStrategy, setStrategy } from "../api/chat";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
@@ -42,8 +43,6 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
   // Панель планировщика
   const [schedulerPanelOpen, setSchedulerPanelOpen] = useState(false);
-  // Лог tool calls текущего стриминга (для отображения в чате)
-  const toolEventsRef = useRef<Array<{ type: "call" | "result"; data: ToolCallEvent | ToolResultEvent }>>([]);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -125,10 +124,9 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
       ? messages
       : [...messages, { role: "user" as const, content: text }];
 
-    // Сбрасываем буфер и лог tool calls
+    // Сбрасываем буфер стриминга
     streamBufferRef.current = "";
     startTimeRef.current = Date.now();
-    toolEventsRef.current = [];
 
     setMessages([...updatedMessages, { role: "assistant", content: "" }]);
     setIsLoading(true);
@@ -157,25 +155,12 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
             rafIdRef.current = requestAnimationFrame(() => {
               const text = streamBufferRef.current;
               const elapsed = Date.now() - startTimeRef.current;
-              // Если были tool calls — показываем их перед текстом ответа
-              const prefix = toolEventsRef.current.length > 0
-                ? toolEventsRef.current
-                    .map((e) => {
-                      if (e.type === "call") {
-                        const tc = e.data as ToolCallEvent;
-                        return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
-                      }
-                      const tr = e.data as ToolResultEvent;
-                      return `📋 Результат ${tr.name}:\n${tr.content}`;
-                    })
-                    .join("\n\n") + "\n\n---\n\n"
-                : "";
               setMessages((prev) => {
                 const updated = [...prev];
                 const last = updated[updated.length - 1];
                 updated[updated.length - 1] = {
                   ...last,
-                  content: prefix + text,
+                  content: text,
                   responseTime: elapsed,
                 };
                 return updated;
@@ -200,25 +185,12 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           }
           const finalContent = streamBufferRef.current;
           const elapsed = Date.now() - startTimeRef.current;
-          // Если были tool calls — показываем их перед финальным текстом
-          const prefix = toolEventsRef.current.length > 0
-            ? toolEventsRef.current
-                .map((e) => {
-                  if (e.type === "call") {
-                    const tc = e.data as ToolCallEvent;
-                    return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
-                  }
-                  const tr = e.data as ToolResultEvent;
-                  return `📋 Результат ${tr.name}:\n${tr.content}`;
-                })
-                .join("\n\n") + "\n\n---\n\n"
-            : "";
           setMessages((prev) => {
             const updated = [...prev];
             const last = updated[updated.length - 1];
             updated[updated.length - 1] = {
               ...last,
-              content: prefix + finalContent,
+              content: finalContent,
               responseTime: elapsed,
             };
             return updated;
@@ -249,41 +221,37 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           }
         },
         onToolCall: (event: ToolCallEvent) => {
-          toolEventsRef.current.push({ type: "call", data: event });
-          // Обновляем контент ассистентского сообщения — показываем вызов инструмента
-          const toolInfo = toolEventsRef.current
-            .map((e) => {
-              if (e.type === "call") {
-                const tc = e.data as ToolCallEvent;
-                return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
-              }
-              const tr = e.data as ToolResultEvent;
-              return `📋 Результат ${tr.name}:\n${tr.content}`;
-            })
-            .join("\n\n");
+          // Добавляем событие вызова инструмента в toolEvents сообщения
           setMessages((prev) => {
             const updated = [...prev];
-            const last = updated[updated.length - 1];
-            updated[updated.length - 1] = { ...last, content: toolInfo + "\n\n⏳ Думаю..." };
+            const last = { ...updated[updated.length - 1] };
+            const events = [...(last.toolEvents || [])];
+            events.push({
+              type: "call",
+              name: event.name,
+              arguments: event.arguments,
+              timestamp: Date.now(),
+            });
+            last.toolEvents = events;
+            last.content = "";
+            updated[updated.length - 1] = last;
             return updated;
           });
         },
         onToolResult: (event: ToolResultEvent) => {
-          toolEventsRef.current.push({ type: "result", data: event });
-          const toolInfo = toolEventsRef.current
-            .map((e) => {
-              if (e.type === "call") {
-                const tc = e.data as ToolCallEvent;
-                return `🔧 Вызов: ${tc.name}(${JSON.stringify(tc.arguments)})`;
-              }
-              const tr = e.data as ToolResultEvent;
-              return `📋 Результат ${tr.name}:\n${tr.content}`;
-            })
-            .join("\n\n");
+          // Добавляем результат инструмента в toolEvents сообщения
           setMessages((prev) => {
             const updated = [...prev];
-            const last = updated[updated.length - 1];
-            updated[updated.length - 1] = { ...last, content: toolInfo + "\n\n⏳ Думаю..." };
+            const last = { ...updated[updated.length - 1] };
+            const events = [...(last.toolEvents || [])];
+            events.push({
+              type: "result",
+              name: event.name,
+              content: event.content,
+              timestamp: Date.now(),
+            });
+            last.toolEvents = events;
+            updated[updated.length - 1] = last;
             return updated;
           });
           // Сбрасываем буфер — после tool calls пойдёт финальный текст

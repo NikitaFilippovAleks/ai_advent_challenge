@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 import { Message } from "../types";
+import ToolCallBlock from "./ToolCallBlock";
 
 interface Props {
   message: Message;
@@ -31,6 +32,9 @@ function MessageBubble({ message }: Props) {
     <div className={`message bubble ${message.role}`}>
       {message.role === "assistant" ? (
         <div className="markdown-content">
+          {message.toolEvents && message.toolEvents.length > 0 && (
+            <ToolCallBlock events={message.toolEvents} />
+          )}
           <ReactMarkdown>{displayContent}</ReactMarkdown>
         </div>
       ) : (

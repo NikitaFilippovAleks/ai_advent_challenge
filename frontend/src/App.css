@@ -1541,3 +1541,102 @@ body {
   border-radius: 2px;
   transition: width 0.3s ease;
 }
+
+/* --- Tool Calls (в стиле Claude Code) --- */
+.tool-calls-container {
+  margin-bottom: 12px;
+}
+
+.tool-call-item {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.82rem;
+  overflow: hidden;
+}
+
+.tool-call-item.running {
+  border-color: #89b4fa;
+}
+
+.tool-call-item.completed {
+  border-color: #313244;
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  color: #cdd6f4;
+  user-select: none;
+}
+
+.tool-call-header:hover {
+  background: #262637;
+}
+
+.tool-call-icon {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.tool-call-item.completed .tool-call-icon {
+  color: #a6e3a1;
+}
+
+.tool-call-item.running .tool-call-icon {
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.tool-call-name {
+  color: #89b4fa;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.tool-call-args {
+  color: #a6adc8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.tool-call-expand {
+  color: #6c7086;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.tool-call-preview {
+  padding: 4px 10px 6px 28px;
+  color: #6c7086;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-call-result {
+  padding: 8px 10px;
+  background: #181825;
+  color: #a6adc8;
+  font-size: 0.78rem;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+  border-top: 1px solid #313244;
+}

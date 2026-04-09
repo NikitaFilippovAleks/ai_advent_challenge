@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GigaChat — веб-приложение для чата с LLM (GigaChat от Сбера). Монорепо с FastAPI бэкендом и React фронтендом, работающими в Docker-контейнерах.
 
+## ВАЖНО: Выполнение команд
+
+**Все команды (сборка, линтинг, тесты, npm/pip и т.д.) выполняются ТОЛЬКО внутри Docker-контейнеров** через `docker compose exec`. Не запускай команды напрямую на хост-машине.
+
+```bash
+# Бэкенд
+docker compose exec backend <команда>
+
+# Фронтенд
+docker compose exec frontend <команда>
+```
+
 ## Команды
 
 ### Запуск (из корня проекта)
@@ -54,6 +66,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/tasks/` — конечный автомат задач (FSM): классификация сообщений, фазы planning→execution→validation→done, пауза/отмена (state_machine, service, repository, router, schemas)
 - `backend/app/modules/scheduler/` — планировщик задач с периодическим выполнением: APScheduler, сбор данных через MCPManager, генерация сводок через AgentRunner (service, repository, router, schemas, dependencies)
 - `backend/mcp_servers/scheduler_server.py` — MCP-сервер планировщика (5 инструментов: create_scheduled_task, list_scheduled_tasks, get_task_results, get_task_summary, cancel_scheduled_task), отдельная БД scheduler.db
+- `backend/mcp_servers/research_server.py` — MCP-сервер для исследования файлов (3 инструмента: search_files, summarize_text, save_to_file), демонстрирует композицию инструментов в пайплайн
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран

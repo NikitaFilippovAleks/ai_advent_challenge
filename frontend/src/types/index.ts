@@ -8,6 +8,15 @@ export interface UsageInfo {
 // Роли сообщений — расширяемо для агентной архитектуры
 export type MessageRole = "user" | "assistant" | "system" | "tool";
 
+// Событие вызова/результата инструмента для структурированного отображения
+export interface ToolEvent {
+  type: "call" | "result";
+  name: string;
+  arguments?: Record<string, unknown>;
+  content?: string;
+  timestamp: number;
+}
+
 // Единое сообщение в диалоге
 export interface Message {
   id?: number;              // ID из БД (для branching)
@@ -15,6 +24,7 @@ export interface Message {
   content: string;
   usage?: UsageInfo;        // токены (только для assistant)
   responseTime?: number;    // время ответа в мс (только для assistant)
+  toolEvents?: ToolEvent[]; // события tool call/result для структурированного отображения
   // Подготовка для агентной архитектуры (пока не используются)
   toolCalls?: ToolCall[];
   toolCallId?: string;
