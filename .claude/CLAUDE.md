@@ -67,6 +67,8 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/scheduler/` — планировщик задач с периодическим выполнением: APScheduler, сбор данных через MCPManager, генерация сводок через AgentRunner (service, repository, router, schemas, dependencies)
 - `backend/mcp_servers/scheduler_server.py` — MCP-сервер планировщика (5 инструментов: create_scheduled_task, list_scheduled_tasks, get_task_results, get_task_summary, cancel_scheduled_task), отдельная БД scheduler.db
 - `backend/mcp_servers/research_server.py` — MCP-сервер для исследования файлов (3 инструмента: search_files, summarize_text, save_to_file), демонстрирует композицию инструментов в пайплайн
+- `backend/mcp_servers/system_server.py` — MCP-сервер системной информации (4 инструмента: current_datetime, disk_usage, list_processes, env_info)
+- `backend/mcp_servers/notes_server.py` — MCP-сервер заметок (5 инструментов: create_note, get_note, list_notes, search_notes, delete_note), хранение в /app/data/notes.json
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
@@ -92,7 +94,7 @@ npm run build     # TypeScript + Vite production сборка
 
 **Стриминг:** `POST /api/chat/stream` → SSE-события (delta, tool_call, tool_result, usage, done, error) → `fetch` + `ReadableStream`
 
-**MCP-серверы:** Конфигурация в `backend/data/mcp_servers.json`. При старте приложения MCPManager автоматически подключает серверы с `enabled: true`. Агент использует инструменты через GigaChat function calling.
+**MCP-серверы:** Конфигурация в `backend/data/mcp_servers.json`. При старте приложения MCPManager автоматически подключает серверы с `enabled: true`. Агент использует инструменты через GigaChat function calling. Зарегистрированные серверы: git (4 инструмента), scheduler (5), research (3), system (4), notes (5) — итого 21 инструмент.
 
 **Порты:** Backend 8000, Frontend 5173
 

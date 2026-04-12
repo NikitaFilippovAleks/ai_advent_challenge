@@ -57,7 +57,7 @@ class GigaChatProvider(BaseLLMProvider):
         payload_kwargs = {
             "messages": self._build_messages(messages),
             "model": model or settings.gigachat_model,
-            "max_tokens": 1024,
+            "max_tokens": 2048,
             "temperature": temperature,
         }
         if functions:
