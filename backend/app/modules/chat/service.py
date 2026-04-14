@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 from app.modules.agent.runner import AgentRunner
 from app.modules.chat.schemas import ChatRequest, ChatResponse
+from app.modules.indexing.service import IndexingService
 from app.modules.context.repository import get_active_branch_id, get_conversation_strategy
 from app.modules.context.service import ContextService
 from app.modules.conversations.repository import (
@@ -44,6 +45,7 @@ class ChatService:
         get_active_invariants_fn: Callable[[], Awaitable[list[dict]]] | None = None,
         task_service=None,
         agent_runner: AgentRunner | None = None,
+        indexing_service: IndexingService | None = None,
     ) -> None:
         self._llm = llm
         self._context = context_service
@@ -52,6 +54,7 @@ class ChatService:
         self._get_active_invariants = get_active_invariants_fn
         self._task_service = task_service
         self._agent = agent_runner
+        self._indexing = indexing_service
 
     async def _get_system_prompt(self, conversation_id: str) -> str | None:
         """Получает system prompt из профиля диалога (явного или дефолтного)."""
@@ -103,6 +106,45 @@ class ChatService:
             "4. Предложить альтернативу в рамках инвариантов\n\n"
             f"{invariants_text}"
         )
+
+    async def _build_rag_context(self, query: str) -> tuple[str | None, list[dict]]:
+        """Ищет релевантные чанки и формирует RAG-контекст.
+
+        Возвращает (system_message_text, sources_list) или (None, []) если поиск пуст.
+        """
+        if not self._indexing:
+            return None, []
+
+        search_result = await self._indexing.search(query, top_k=5)
+        if not search_result.results:
+            return None, []
+
+        # Формируем список источников для SSE-события
+        sources = [
+            {
+                "document_id": r.document_id,
+                "source": r.source,
+                "section": r.section,
+                "content": r.content[:200],
+                "score": r.score,
+            }
+            for r in search_result.results
+        ]
+
+        # Формируем текст для system prompt
+        parts = [
+            "Используй следующие источники для ответа на вопрос пользователя.",
+            "Ссылайся на источники в ответе, указывая имя файла.",
+            "Если источники не содержат нужной информации, скажи об этом.",
+            "",
+        ]
+        for i, r in enumerate(search_result.results, 1):
+            section_info = f", секция: {r.section}" if r.section else ""
+            parts.append(f"--- Источник {i} [файл: {r.source}{section_info}] ---")
+            parts.append(r.content)
+            parts.append("")
+
+        return "\n".join(parts), sources
 
     async def _build_task_prompt(self, conversation_id: str, user_text: str) -> tuple[str | None, dict | None]:
         """Возвращает (task_system_prompt, active_task) или (None, None).
@@ -183,6 +225,14 @@ class ChatService:
             invariants_text = await self._build_invariants_text()
             if invariants_text:
                 messages.insert(0, {"role": "system", "content": invariants_text})
+            # RAG — вставляем контекст из индексированных документов
+            if request.use_rag:
+                rag_text, _rag_sources = await self._build_rag_context(user_msg.content)
+                if rag_text:
+                    messages.insert(
+                        len([m for m in messages if m["role"] == "system"]),
+                        {"role": "system", "content": rag_text},
+                    )
             # Задачи — промпт текущей фазы FSM
             task_prompt, active_task = await self._build_task_prompt(
                 request.conversation_id, user_msg.content
@@ -291,6 +341,15 @@ class ChatService:
                 invariants_text = await self._build_invariants_text()
                 if invariants_text:
                     messages.insert(0, {"role": "system", "content": invariants_text})
+                # RAG — вставляем контекст и запоминаем источники
+                rag_sources = []
+                if request.use_rag:
+                    rag_text, rag_sources = await self._build_rag_context(user_text)
+                    if rag_text:
+                        messages.insert(
+                            len([m for m in messages if m["role"] == "system"]),
+                            {"role": "system", "content": rag_text},
+                        )
                 # Задачи — промпт текущей фазы FSM
                 task_prompt, active_task = await self._build_task_prompt(
                     request.conversation_id, user_text
@@ -303,6 +362,12 @@ class ChatService:
             else:
                 messages = [m.model_dump() for m in request.messages]
                 active_task = None
+                rag_sources = []
+
+            # Отправляем SSE-событие sources до начала генерации
+            if request.use_rag and rag_sources:
+                sources_data = json.dumps({"sources": rag_sources}, ensure_ascii=False)
+                yield f"event: sources\ndata: {sources_data}\n\n"
 
             # Используем AgentRunner если он есть (поддержка MCP-инструментов)
             stream_source = (

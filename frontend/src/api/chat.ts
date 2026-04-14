@@ -9,6 +9,7 @@ import {
   MemoryState,
   Message,
   ModelInfo,
+  RAGSource,
   ToolCallEvent,
   ToolResultEvent,
   UsageInfo,
@@ -37,6 +38,7 @@ export interface StreamCallbacks {
   onError: (error: Error) => void;
   onToolCall?: (event: ToolCallEvent) => void;
   onToolResult?: (event: ToolResultEvent) => void;
+  onSources?: (sources: RAGSource[]) => void;
 }
 
 // Стриминг ответа через SSE (fetch + ReadableStream)
@@ -109,6 +111,8 @@ export async function streamMessage(
           callbacks.onToolCall?.(data);
         } else if (eventType === "tool_result") {
           callbacks.onToolResult?.(data);
+        } else if (eventType === "sources") {
+          callbacks.onSources?.(data.sources);
         }
       }
     }

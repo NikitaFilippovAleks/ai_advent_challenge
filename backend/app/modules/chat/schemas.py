@@ -17,6 +17,7 @@ class ChatRequest(BaseModel):
     model: str | None = None
     temperature: float | None = None
     conversation_id: str | None = None
+    use_rag: bool = False
 
 
 class UsageInfo(BaseModel):

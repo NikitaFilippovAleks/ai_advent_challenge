@@ -25,6 +25,7 @@ export interface Message {
   usage?: UsageInfo;        // токены (только для assistant)
   responseTime?: number;    // время ответа в мс (только для assistant)
   toolEvents?: ToolEvent[]; // события tool call/result для структурированного отображения
+  sources?: RAGSource[];       // RAG-источники
   // Подготовка для агентной архитектуры (пока не используются)
   toolCalls?: ToolCall[];
   toolCallId?: string;
@@ -36,6 +37,7 @@ export interface ChatRequest {
   model?: string;
   temperature?: number;
   conversation_id?: string;
+  use_rag?: boolean;
 }
 
 // Диалог (для списка в сайдбаре)
@@ -295,4 +297,13 @@ export interface CompareStrategyResult {
 export interface CompareResponse {
   query: string;
   strategies: CompareStrategyResult[];
+}
+
+// Источник RAG-ответа (SSE-событие sources)
+export interface RAGSource {
+  document_id: string;
+  source: string;
+  section: string | null;
+  content: string;
+  score: number;
 }

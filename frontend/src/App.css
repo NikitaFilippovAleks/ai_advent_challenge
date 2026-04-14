@@ -1640,3 +1640,69 @@ body {
   margin: 0;
   border-top: 1px solid #313244;
 }
+
+/* --- RAG Sources --- */
+.sources-panel {
+  margin-top: 8px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.85em;
+}
+
+.sources-header {
+  padding: 6px 10px;
+  background: #1a1a2e;
+  color: #888;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.sources-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.source-item {
+  padding: 6px 10px;
+  border-top: 1px solid #222;
+}
+
+.source-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.source-file {
+  color: #7aa2f7;
+  font-weight: 500;
+}
+
+.source-section {
+  color: #9ece6a;
+  font-size: 0.9em;
+}
+
+.source-score {
+  color: #e0af68;
+  font-size: 0.85em;
+  margin-left: auto;
+}
+
+.source-content {
+  color: #666;
+  font-size: 0.9em;
+  white-space: pre-wrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 3em;
+}
+
+/* Активное состояние кнопки RAG */
+.memory-toggle-btn.active {
+  background: #1a3a2a;
+  border-color: #9ece6a;
+  color: #9ece6a;
+}

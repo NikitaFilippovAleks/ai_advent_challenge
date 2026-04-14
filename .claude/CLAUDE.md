@@ -82,6 +82,7 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/components/TaskPanel.tsx` — панель статуса задачи: фаза, прогресс, пауза/отмена
 - `frontend/src/components/MCPPanel.tsx` — панель управления MCP-серверами: подключение/отключение, список инструментов
 - `frontend/src/components/SchedulerPanel.tsx` — панель планировщика: задачи, результаты сбора, сводки, управление (пауза/удаление)
+- `frontend/src/components/SourcesPanel.tsx` — отображение RAG-источников под ответом ассистента (файл, секция, score)
 - `frontend/src/api/scheduler.ts` — API-клиент: задачи, результаты, сводки, пауза/возобновление/удаление
 - `frontend/src/api/tasks.ts` — API-клиент: активная задача, переходы фаз, история
 - `frontend/src/api/mcp.ts` — API-клиент: CRUD MCP-серверов, connect/disconnect, список инструментов
@@ -95,6 +96,8 @@ npm run build     # TypeScript + Vite production сборка
 
 **Стриминг:** `POST /api/chat/stream` → SSE-события (delta, tool_call, tool_result, usage, done, error) → `fetch` + `ReadableStream`
 
+**RAG:** Флаг `use_rag: true` в ChatRequest активирует поиск по индексированным документам. Найденные чанки вставляются в system prompt, SSE-событие `sources` отправляется перед генерацией текста.
+
 **MCP-серверы:** Конфигурация в `backend/data/mcp_servers.json`. При старте приложения MCPManager автоматически подключает серверы с `enabled: true`. Агент использует инструменты через GigaChat function calling. Зарегистрированные серверы: git (4 инструмента), scheduler (5), research (3), system (4), notes (5) — итого 21 инструмент.
 
 **Порты:** Backend 8000, Frontend 5173
@@ -103,12 +106,12 @@ npm run build     # TypeScript + Vite production сборка
 
 ```
 POST /api/chat
-Body: { messages: [{ role, content }], model?, temperature? }
+Body: { messages: [{ role, content }], model?, temperature?, use_rag? }
 Response: { content: string, usage?: { prompt_tokens, completion_tokens, total_tokens } }
 
 POST /api/chat/stream (SSE)
-Body: { messages: [{ role, content }], model?, temperature? }
-Events: delta → { content, type }, usage → { prompt_tokens, ... }, done → {}, error → { message }
+Body: { messages: [{ role, content }], model?, temperature?, use_rag? }
+Events: sources → { sources: [...] }, delta → { content, type }, usage → { prompt_tokens, ... }, done → {}, error → { message }
 
 GET /api/models
 Response: { models: [{ id, name }] }

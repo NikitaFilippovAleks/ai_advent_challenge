@@ -1,6 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import { Message } from "../types";
 import ToolCallBlock from "./ToolCallBlock";
+import SourcesPanel from "./SourcesPanel";
 
 interface Props {
   message: Message;
@@ -36,6 +37,9 @@ function MessageBubble({ message }: Props) {
             <ToolCallBlock events={message.toolEvents} />
           )}
           <ReactMarkdown>{displayContent}</ReactMarkdown>
+          {message.sources && message.sources.length > 0 && (
+            <SourcesPanel sources={message.sources} />
+          )}
         </div>
       ) : (
         message.content

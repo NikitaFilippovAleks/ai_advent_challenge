@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Message, ModelInfo, ContextStrategy, TaskInfo } from "../types";
+import { Message, ModelInfo, ContextStrategy, TaskInfo, RAGSource } from "../types";
 import type { ToolCallEvent, ToolResultEvent } from "../types";
 import { streamMessage, getMessages, getStrategy, setStrategy } from "../api/chat";
 import MessageList from "./MessageList";
@@ -46,6 +46,8 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   const [schedulerPanelOpen, setSchedulerPanelOpen] = useState(false);
   // Панель индексации
   const [indexingPanelOpen, setIndexingPanelOpen] = useState(false);
+  // Переключатель RAG-поиска
+  const [useRag, setUseRag] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -149,6 +151,7 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
         model: selectedModel,
         temperature,
         conversation_id: conversationId || undefined,
+        use_rag: useRag || undefined,
       },
       {
         // Текст копится в буфер, стейт обновляется через rAF (макс 60 раз/сек)
@@ -259,6 +262,15 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           });
           // Сбрасываем буфер — после tool calls пойдёт финальный текст
           streamBufferRef.current = "";
+        },
+        onSources: (sources: RAGSource[]) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = { ...updated[updated.length - 1] };
+            last.sources = sources;
+            updated[updated.length - 1] = last;
+            return updated;
+          });
         },
         onError: (error) => {
           if (rafIdRef.current !== null) {
@@ -383,6 +395,15 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
             style={{ marginRight: "4px" }}
           >
             {indexingPanelOpen ? "▶" : "◀"} Индекс
+          </button>
+          {/* Toggle RAG */}
+          <button
+            className={`memory-toggle-btn${useRag ? " active" : ""}`}
+            onClick={() => setUseRag((prev) => !prev)}
+            title={useRag ? "Выключить RAG" : "Включить RAG"}
+            style={{ marginRight: "4px" }}
+          >
+            RAG {useRag ? "✓" : ""}
           </button>
           {/* Кнопка сворачивания/разворачивания панели памяти */}
           {conversationId && (
