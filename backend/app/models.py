@@ -1,4 +1,4 @@
-"""ORM-модели SQLAlchemy для хранения диалогов, сообщений, суммаризаций, фактов, веток и памяти."""
+"""ORM-модели SQLAlchemy для хранения диалогов, сообщений, суммаризаций, фактов, веток, памяти и индекса документов."""
 
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -202,3 +202,44 @@ class Task(Base):
     updated_at: Mapped[str] = mapped_column(String)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="tasks")
+
+
+class IndexedDocument(Base):
+    """Проиндексированный документ."""
+
+    __tablename__ = "indexed_documents"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    chunking_strategy: Mapped[str] = mapped_column(String, nullable=False)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String)
+
+    chunks: Mapped[list["DocumentChunk"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class DocumentChunk(Base):
+    """Чанк документа с эмбеддингом и метаданными."""
+
+    __tablename__ = "document_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("indexed_documents.id", ondelete="CASCADE")
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # Эмбеддинг в формате JSON-массива float[]
+    embedding_json: Mapped[str] = mapped_column(Text, nullable=False)
+    # Метаданные чанка
+    source: Mapped[str] = mapped_column(String)
+    section: Mapped[str | None] = mapped_column(String, nullable=True)
+    char_start: Mapped[int] = mapped_column(Integer, default=0)
+    char_end: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(String)
+
+    document: Mapped["IndexedDocument"] = relationship(back_populates="chunks")

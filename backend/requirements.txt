@@ -8,3 +8,4 @@ ruff
 mcp
 apscheduler>=3.10,<4
 croniter>=1.3,<3
+numpy

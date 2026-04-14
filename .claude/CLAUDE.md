@@ -49,7 +49,7 @@ npm run build     # TypeScript + Vite production сборка
 Правило импортов: каждый слой импортирует только из слоёв ниже. Модули не импортируют друг друга (кроме `dependencies.py` для DI).
 
 - `backend/app/main.py` — Composition Root: создаёт FastAPI, подключает роутеры модулей
-- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory, UserProfile, Invariant, Task
+- `backend/app/models.py` — ORM-модели: Conversation, Message, Summary, ConversationFact, Branch, ShortTermInsight, LongTermMemory, UserProfile, Invariant, Task, IndexedDocument, DocumentChunk
 - `backend/app/core/config.py` — pydantic-settings, загружает переменные из `.env`
 - `backend/app/core/database.py` — SQLAlchemy async engine, session factory, init_db, миграции
 - `backend/app/core/exceptions.py` — базовые исключения (NotFoundError, ValidationError)
@@ -65,6 +65,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/invariants/` — глобальные инварианты (правила, которые ассистент обязан соблюдать): CRUD, toggle, инъекция в system prompt LLM
 - `backend/app/modules/tasks/` — конечный автомат задач (FSM): классификация сообщений, фазы planning→execution→validation→done, пауза/отмена (state_machine, service, repository, router, schemas)
 - `backend/app/modules/scheduler/` — планировщик задач с периодическим выполнением: APScheduler, сбор данных через MCPManager, генерация сводок через AgentRunner (service, repository, router, schemas, dependencies)
+- `backend/app/modules/indexing/` — индексация документов с эмбеддингами: 2 стратегии chunking (fixed_size, structural), генерация эмбеддингов через GigaChat SDK, семантический поиск по cosine similarity, сравнение стратегий (router, service, repository, schemas, dependencies, strategies/)
 - `backend/mcp_servers/scheduler_server.py` — MCP-сервер планировщика (5 инструментов: create_scheduled_task, list_scheduled_tasks, get_task_results, get_task_summary, cancel_scheduled_task), отдельная БД scheduler.db
 - `backend/mcp_servers/research_server.py` — MCP-сервер для исследования файлов (3 инструмента: search_files, summarize_text, save_to_file), демонстрирует композицию инструментов в пайплайн
 - `backend/mcp_servers/system_server.py` — MCP-сервер системной информации (4 инструмента: current_datetime, disk_usage, list_processes, env_info)
@@ -229,6 +230,27 @@ Response: { status: "active" }
 
 DELETE /api/scheduler/tasks/{id}
 Response: { status: "deleted" }
+
+POST /api/indexing/index
+Body: { paths: [string], strategy?: "fixed_size" | "structural" }
+Response: [{ document_id, filename, chunk_count, strategy }]
+
+POST /api/indexing/search
+Body: { query: string, top_k?: int }
+Response: { query, results: [{ chunk_id, document_id, source, section, content, score }] }
+
+GET /api/indexing/documents
+Response: [{ id, filename, title, chunking_strategy, chunk_count, created_at }]
+
+GET /api/indexing/documents/{doc_id}
+Response: { id, filename, title, chunking_strategy, chunk_count, created_at }
+
+DELETE /api/indexing/documents/{doc_id}
+Response: { status: "deleted", document_id }
+
+POST /api/indexing/compare
+Body: { paths: [string], query: string, top_k?: int }
+Response: { query, strategies: [{ strategy, chunk_count, avg_chunk_length, results: [...] }] }
 ```
 
 ## Стратегии управления контекстом
@@ -249,7 +271,7 @@ Response: { status: "deleted" }
 
 ## Стек
 
-- **Backend:** Python 3.12, FastAPI, uvicorn, gigachat SDK, pydantic-settings, SQLAlchemy 2.0 async + aiosqlite, APScheduler 3.x, croniter
+- **Backend:** Python 3.12, FastAPI, uvicorn, gigachat SDK, pydantic-settings, SQLAlchemy 2.0 async + aiosqlite, APScheduler 3.x, croniter, numpy
 - **Frontend:** React 19, TypeScript 5.6, Vite 6
 - **Infra:** Docker, Docker Compose
 

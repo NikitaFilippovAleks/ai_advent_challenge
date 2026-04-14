@@ -11,6 +11,7 @@ import MCPPanel from "./MCPPanel";
 import SchedulerPanel from "./SchedulerPanel";
 import ProfileSelector from "./ProfileSelector";
 import TaskPanel from "./TaskPanel";
+import IndexingPanel from "./IndexingPanel";
 import { getActiveTask } from "../api/tasks";
 
 interface Props {
@@ -43,6 +44,8 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   const [mcpPanelOpen, setMcpPanelOpen] = useState(false);
   // Панель планировщика
   const [schedulerPanelOpen, setSchedulerPanelOpen] = useState(false);
+  // Панель индексации
+  const [indexingPanelOpen, setIndexingPanelOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -372,6 +375,15 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           >
             {schedulerPanelOpen ? "▶" : "◀"} Расписание
           </button>
+          {/* Кнопка индексации */}
+          <button
+            className="memory-toggle-btn"
+            onClick={() => setIndexingPanelOpen((prev) => !prev)}
+            title={indexingPanelOpen ? "Скрыть индексацию" : "Показать индексацию"}
+            style={{ marginRight: "4px" }}
+          >
+            {indexingPanelOpen ? "▶" : "◀"} Индекс
+          </button>
           {/* Кнопка сворачивания/разворачивания панели памяти */}
           {conversationId && (
             <button
@@ -433,6 +445,12 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           {schedulerPanelOpen && (
             <div className="memory-panel">
               <SchedulerPanel />
+            </div>
+          )}
+          {/* Панель индексации (сворачиваемая) */}
+          {indexingPanelOpen && (
+            <div className="memory-panel">
+              <IndexingPanel />
             </div>
           )}
           {/* Панель памяти — ВСЕГДА справа от чата (сворачиваемая) */}

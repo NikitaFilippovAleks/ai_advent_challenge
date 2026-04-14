@@ -246,3 +246,53 @@ export interface SchedulerSummary {
   period_end: string;
   created_at: string;
 }
+
+// --- Индексация документов ---
+
+// Проиндексированный документ
+export interface IndexedDocument {
+  id: string;
+  filename: string;
+  title: string;
+  chunking_strategy: string;
+  chunk_count: number;
+  created_at: string;
+}
+
+// Результат индексации
+export interface IndexResult {
+  document_id: string;
+  filename: string;
+  chunk_count: number;
+  strategy: string;
+}
+
+// Результат поиска — один чанк
+export interface SearchResult {
+  chunk_id: number;
+  document_id: string;
+  source: string;
+  section: string | null;
+  content: string;
+  score: number;
+}
+
+// Ответ поиска
+export interface SearchResponse {
+  results: SearchResult[];
+  query: string;
+}
+
+// Результат одной стратегии при сравнении
+export interface CompareStrategyResult {
+  strategy: string;
+  chunk_count: number;
+  avg_chunk_length: number;
+  results: SearchResult[];
+}
+
+// Ответ сравнения стратегий
+export interface CompareResponse {
+  query: string;
+  strategies: CompareStrategyResult[];
+}
