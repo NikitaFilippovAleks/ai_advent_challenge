@@ -19,7 +19,12 @@ function SourcesPanel({ sources }: Props) {
             <div className="source-meta">
               <span className="source-file">{s.source}</span>
               {s.section && <span className="source-section">{s.section}</span>}
-              <span className="source-score">{(s.score * 100).toFixed(0)}%</span>
+              {s.original_score != null && (
+                <span className="source-score" style={{ opacity: 0.6 }} title="Cosine similarity">
+                  cos:{(s.original_score * 100).toFixed(0)}%
+                </span>
+              )}
+              <span className="source-score" title="Итоговый score">{(s.score * 100).toFixed(0)}%</span>
             </div>
             <div className="source-content">{s.content}</div>
           </div>

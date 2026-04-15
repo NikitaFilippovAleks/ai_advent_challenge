@@ -10,6 +10,8 @@ from app.modules.indexing.schemas import (
     DocumentOut,
     IndexRequest,
     IndexResponse,
+    RerankCompareRequest,
+    RerankCompareResponse,
     SearchRequest,
     SearchResponse,
 )
@@ -39,8 +41,16 @@ async def search(
     request: SearchRequest,
     service: IndexingService = Depends(get_indexing_service),
 ):
-    """Семантический поиск по проиндексированным документам."""
-    return await service.search(request.query, request.top_k)
+    """Семантический поиск по проиндексированным документам с опциональным реранкингом."""
+    return await service.search(
+        query=request.query,
+        top_k=request.top_k,
+        rerank_mode=request.rerank_mode,
+        score_threshold=request.score_threshold,
+        top_k_initial=request.top_k_initial,
+        top_k_final=request.top_k_final,
+        rewrite_query=request.rewrite_query,
+    )
 
 
 @router.get("/api/indexing/documents", response_model=list[DocumentOut])
@@ -66,6 +76,21 @@ async def delete_document(doc_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="Документ не найден")
     return {"status": "deleted", "document_id": doc_id}
+
+
+@router.post("/api/indexing/rerank-compare", response_model=RerankCompareResponse)
+async def compare_reranking(
+    request: RerankCompareRequest,
+    service: IndexingService = Depends(get_indexing_service),
+):
+    """Сравнивает результаты поиска с разными режимами переранжирования."""
+    return await service.compare_reranking(
+        query=request.query,
+        top_k_initial=request.top_k_initial,
+        top_k_final=request.top_k_final,
+        score_threshold=request.score_threshold,
+        rewrite_query=request.rewrite_query,
+    )
 
 
 @router.post("/api/indexing/compare", response_model=CompareResponse)

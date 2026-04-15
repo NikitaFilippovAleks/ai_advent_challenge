@@ -18,6 +18,8 @@ class ChatRequest(BaseModel):
     temperature: float | None = None
     conversation_id: str | None = None
     use_rag: bool = False
+    rag_rerank_mode: str = "keyword"  # режим переранжирования RAG-результатов
+    rag_score_threshold: float = 0.1  # порог отсечения нерелевантных результатов
 
 
 class UsageInfo(BaseModel):

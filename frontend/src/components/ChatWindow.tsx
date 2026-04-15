@@ -48,6 +48,8 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   const [indexingPanelOpen, setIndexingPanelOpen] = useState(false);
   // Переключатель RAG-поиска
   const [useRag, setUseRag] = useState(false);
+  const [ragRerankMode, setRagRerankMode] = useState("keyword");
+  const [ragScoreThreshold, setRagScoreThreshold] = useState(0.1);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -152,6 +154,8 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
         temperature,
         conversation_id: conversationId || undefined,
         use_rag: useRag || undefined,
+        rag_rerank_mode: useRag ? ragRerankMode : undefined,
+        rag_score_threshold: useRag ? ragScoreThreshold : undefined,
       },
       {
         // Текст копится в буфер, стейт обновляется через rAF (макс 60 раз/сек)
@@ -405,6 +409,50 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           >
             RAG {useRag ? "✓" : ""}
           </button>
+          {/* Настройки реранкинга RAG (видны только при включённом RAG) */}
+          {useRag && (
+            <>
+              <select
+                value={ragRerankMode}
+                onChange={(e) => setRagRerankMode(e.target.value)}
+                title="Режим реранкинга RAG"
+                style={{
+                  background: "#1e1e1e",
+                  color: "#ccc",
+                  border: "1px solid #444",
+                  borderRadius: "4px",
+                  padding: "2px 4px",
+                  fontSize: "11px",
+                  marginRight: "4px",
+                }}
+              >
+                <option value="none">Без реранкинга</option>
+                <option value="threshold">Порог</option>
+                <option value="keyword">Keyword</option>
+                <option value="llm_cross_encoder">LLM</option>
+              </select>
+              <input
+                type="number"
+                value={ragScoreThreshold}
+                onChange={(e) => setRagScoreThreshold(Number(e.target.value))}
+                min={0}
+                max={1}
+                step={0.05}
+                title="Порог отсечения"
+                style={{
+                  width: "45px",
+                  background: "#1e1e1e",
+                  color: "#ccc",
+                  border: "1px solid #444",
+                  borderRadius: "4px",
+                  padding: "2px 4px",
+                  fontSize: "11px",
+                  textAlign: "center",
+                  marginRight: "4px",
+                }}
+              />
+            </>
+          )}
           {/* Кнопка сворачивания/разворачивания панели памяти */}
           {conversationId && (
             <button

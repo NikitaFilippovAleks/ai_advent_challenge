@@ -107,15 +107,27 @@ class ChatService:
             f"{invariants_text}"
         )
 
-    async def _build_rag_context(self, query: str) -> tuple[str | None, list[dict]]:
-        """Ищет релевантные чанки и формирует RAG-контекст.
+    async def _build_rag_context(
+        self,
+        query: str,
+        rerank_mode: str = "keyword",
+        score_threshold: float = 0.1,
+    ) -> tuple[str | None, list[dict]]:
+        """Ищет релевантные чанки и формирует RAG-контекст с переранжированием.
 
         Возвращает (system_message_text, sources_list) или (None, []) если поиск пуст.
         """
         if not self._indexing:
             return None, []
 
-        search_result = await self._indexing.search(query, top_k=5)
+        search_result = await self._indexing.search(
+            query,
+            top_k=5,
+            rerank_mode=rerank_mode,
+            score_threshold=score_threshold,
+            top_k_initial=15,
+            top_k_final=5,
+        )
         if not search_result.results:
             return None, []
 
@@ -127,6 +139,8 @@ class ChatService:
                 "section": r.section,
                 "content": r.content[:200],
                 "score": r.score,
+                "original_score": r.original_score,
+                "rerank_score": r.rerank_score,
             }
             for r in search_result.results
         ]
@@ -227,7 +241,11 @@ class ChatService:
                 messages.insert(0, {"role": "system", "content": invariants_text})
             # RAG — вставляем контекст из индексированных документов
             if request.use_rag:
-                rag_text, _rag_sources = await self._build_rag_context(user_msg.content)
+                rag_text, _rag_sources = await self._build_rag_context(
+                    user_msg.content,
+                    rerank_mode=request.rag_rerank_mode,
+                    score_threshold=request.rag_score_threshold,
+                )
                 if rag_text:
                     messages.insert(
                         len([m for m in messages if m["role"] == "system"]),
@@ -344,7 +362,11 @@ class ChatService:
                 # RAG — вставляем контекст и запоминаем источники
                 rag_sources = []
                 if request.use_rag:
-                    rag_text, rag_sources = await self._build_rag_context(user_text)
+                    rag_text, rag_sources = await self._build_rag_context(
+                        user_text,
+                        rerank_mode=request.rag_rerank_mode,
+                        score_threshold=request.rag_score_threshold,
+                    )
                     if rag_text:
                         messages.insert(
                             len([m for m in messages if m["role"] == "system"]),

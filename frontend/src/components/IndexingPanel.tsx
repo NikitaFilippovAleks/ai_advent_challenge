@@ -7,7 +7,10 @@ import type {
   IndexedDocument,
   IndexResult,
   SearchResult,
+  SearchResponse,
   CompareResponse,
+  RerankCompareResponse,
+  RerankMode,
 } from "../types";
 import {
   indexDocuments,
@@ -15,6 +18,7 @@ import {
   listDocuments,
   deleteDocument,
   compareStrategies,
+  compareReranking,
 } from "../api/indexing";
 
 // Файлы проекта для индексации по умолчанию
@@ -33,7 +37,7 @@ const DEFAULT_PATHS = [
 ];
 
 // Активная вкладка панели
-type Tab = "index" | "search" | "compare";
+type Tab = "index" | "search" | "compare" | "rerank";
 
 export default function IndexingPanel() {
   const [activeTab, setActiveTab] = useState<Tab>("index");
@@ -48,13 +52,27 @@ export default function IndexingPanel() {
 
   // --- Состояние вкладки «Поиск» ---
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchTopK, setSearchTopK] = useState(5);
+  const [searchTopK] = useState(5);
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searchResponse, setSearchResponse] = useState<SearchResponse | null>(null);
+  const [rerankMode, setRerankMode] = useState<RerankMode>("none");
+  const [scoreThreshold, setScoreThreshold] = useState(0.0);
+  const [topKInitial, setTopKInitial] = useState(20);
+  const [topKFinal, setTopKFinal] = useState(5);
+  const [rewriteQuery, setRewriteQuery] = useState(false);
 
   // --- Состояние вкладки «Сравнение» ---
   const [comparePaths, setComparePaths] = useState(DEFAULT_PATHS.slice(0, 5).join("\n"));
   const [compareQuery, setCompareQuery] = useState("");
   const [compareResult, setCompareResult] = useState<CompareResponse | null>(null);
+
+  // --- Состояние вкладки «Реранкинг» ---
+  const [rerankQuery, setRerankQuery] = useState("");
+  const [rerankThreshold, setRerankThreshold] = useState(0.1);
+  const [rerankTopKInitial, setRerankTopKInitial] = useState(20);
+  const [rerankTopKFinal, setRerankTopKFinal] = useState(5);
+  const [rerankRewrite, setRerankRewrite] = useState(false);
+  const [rerankResult, setRerankResult] = useState<RerankCompareResponse | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -95,9 +113,19 @@ export default function IndexingPanel() {
     setLoading(true);
     setError(null);
     setSearchResults(null);
+    setSearchResponse(null);
     try {
-      const resp = await searchDocuments(searchQuery.trim(), searchTopK);
+      const resp = await searchDocuments(
+        searchQuery.trim(),
+        searchTopK,
+        rerankMode,
+        scoreThreshold,
+        topKInitial,
+        topKFinal,
+        rewriteQuery,
+      );
       setSearchResults(resp.results);
+      setSearchResponse(resp);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка поиска");
     } finally {
@@ -118,6 +146,28 @@ export default function IndexingPanel() {
       await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Ошибка сравнения");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRerankCompare = async () => {
+    if (!rerankQuery.trim()) return;
+
+    setLoading(true);
+    setError(null);
+    setRerankResult(null);
+    try {
+      const resp = await compareReranking(
+        rerankQuery.trim(),
+        rerankTopKInitial,
+        rerankTopKFinal,
+        rerankThreshold,
+        rerankRewrite,
+      );
+      setRerankResult(resp);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Ошибка сравнения реранкинга");
     } finally {
       setLoading(false);
     }
@@ -159,6 +209,7 @@ export default function IndexingPanel() {
         <button style={tabStyle("index")} onClick={() => setActiveTab("index")}>Индексация</button>
         <button style={tabStyle("search")} onClick={() => setActiveTab("search")}>Поиск</button>
         <button style={tabStyle("compare")} onClick={() => setActiveTab("compare")}>Сравнение</button>
+        <button style={tabStyle("rerank")} onClick={() => setActiveTab("rerank")}>Реранкинг</button>
       </div>
 
       {error && (
@@ -326,24 +377,6 @@ export default function IndexingPanel() {
                 fontSize: "12px",
               }}
             />
-            <input
-              type="number"
-              value={searchTopK}
-              onChange={(e) => setSearchTopK(Number(e.target.value))}
-              min={1}
-              max={20}
-              style={{
-                width: "45px",
-                background: "#1e1e1e",
-                color: "#ccc",
-                border: "1px solid #444",
-                borderRadius: "4px",
-                padding: "6px",
-                fontSize: "12px",
-                textAlign: "center",
-              }}
-              title="Количество результатов"
-            />
             <button
               onClick={handleSearch}
               disabled={loading || !searchQuery.trim()}
@@ -362,11 +395,128 @@ export default function IndexingPanel() {
             </button>
           </div>
 
-          {searchResults && (
-            <div>
-              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "6px" }}>
-                Найдено: {searchResults.length} результатов
+          {/* Настройки реранкинга */}
+          <div style={{
+            background: "#1a1a1a",
+            padding: "8px",
+            borderRadius: "4px",
+            marginBottom: "8px",
+            fontSize: "11px",
+          }}>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+              <label style={{ color: "#aaa" }}>Реранкинг:</label>
+              <select
+                value={rerankMode}
+                onChange={(e) => setRerankMode(e.target.value as RerankMode)}
+                style={{
+                  background: "#1e1e1e",
+                  color: "#ccc",
+                  border: "1px solid #444",
+                  borderRadius: "4px",
+                  padding: "3px 6px",
+                  fontSize: "11px",
+                }}
+              >
+                <option value="none">Без реранкинга</option>
+                <option value="threshold">Порог отсечения</option>
+                <option value="keyword">Keyword overlap</option>
+                <option value="llm_cross_encoder">LLM cross-encoder</option>
+              </select>
+
+              <label style={{ color: "#aaa" }}>Порог:</label>
+              <input
+                type="number"
+                value={scoreThreshold}
+                onChange={(e) => setScoreThreshold(Number(e.target.value))}
+                min={0}
+                max={1}
+                step={0.05}
+                style={{
+                  width: "55px",
+                  background: "#1e1e1e",
+                  color: "#ccc",
+                  border: "1px solid #444",
+                  borderRadius: "4px",
+                  padding: "3px 6px",
+                  fontSize: "11px",
+                  textAlign: "center",
+                }}
+              />
+
+              <label style={{ color: "#aaa" }}>top_k до:</label>
+              <input
+                type="number"
+                value={topKInitial}
+                onChange={(e) => setTopKInitial(Number(e.target.value))}
+                min={1}
+                max={50}
+                style={{
+                  width: "40px",
+                  background: "#1e1e1e",
+                  color: "#ccc",
+                  border: "1px solid #444",
+                  borderRadius: "4px",
+                  padding: "3px 6px",
+                  fontSize: "11px",
+                  textAlign: "center",
+                }}
+              />
+
+              <label style={{ color: "#aaa" }}>после:</label>
+              <input
+                type="number"
+                value={topKFinal}
+                onChange={(e) => setTopKFinal(Number(e.target.value))}
+                min={1}
+                max={20}
+                style={{
+                  width: "40px",
+                  background: "#1e1e1e",
+                  color: "#ccc",
+                  border: "1px solid #444",
+                  borderRadius: "4px",
+                  padding: "3px 6px",
+                  fontSize: "11px",
+                  textAlign: "center",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "6px" }}>
+              <label style={{ color: "#aaa", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={rewriteQuery}
+                  onChange={(e) => setRewriteQuery(e.target.checked)}
+                />
+                Переписать запрос через LLM
+              </label>
+            </div>
+          </div>
+
+          {/* Мета-информация о поиске */}
+          {searchResponse && (
+            <div style={{ fontSize: "11px", color: "#aaa", marginBottom: "6px" }}>
+              {searchResponse.rewritten_query && (
+                <div style={{ marginBottom: "3px" }}>
+                  Переписанный запрос: <span style={{ color: "#64b5f6" }}>{searchResponse.rewritten_query}</span>
+                </div>
+              )}
+              <div>
+                Найдено: {searchResults?.length ?? 0} результатов
+                {searchResponse.rerank_mode !== "none" && (
+                  <span style={{ marginLeft: "8px" }}>
+                    | Режим: <span style={{ color: "#ff9800" }}>{searchResponse.rerank_mode}</span>
+                    {(searchResponse.filtered_count ?? 0) > 0 && (
+                      <span> | Отфильтровано: {searchResponse.filtered_count}</span>
+                    )}
+                  </span>
+                )}
               </div>
+            </div>
+          )}
+
+          {searchResults && searchResults.length > 0 && (
+            <div>
               {searchResults.map((r, i) => (
                 <div
                   key={r.chunk_id}
@@ -387,13 +537,24 @@ export default function IndexingPanel() {
                         </span>
                       )}
                     </span>
-                    <span style={{
-                      color: scoreColor(r.score),
-                      fontSize: "11px",
-                      fontWeight: 600,
-                    }}>
-                      {(r.score * 100).toFixed(1)}%
-                    </span>
+                    <div style={{ display: "flex", gap: "6px", fontSize: "11px" }}>
+                      {r.original_score != null && (
+                        <span style={{ color: "#888" }} title="Cosine similarity">
+                          cos: {(r.original_score * 100).toFixed(1)}%
+                        </span>
+                      )}
+                      {r.rerank_score != null && (
+                        <span style={{ color: "#64b5f6" }} title="Rerank score">
+                          rr: {(r.rerank_score * 100).toFixed(1)}%
+                        </span>
+                      )}
+                      <span style={{
+                        color: scoreColor(r.score),
+                        fontWeight: 600,
+                      }}>
+                        {(r.score * 100).toFixed(1)}%
+                      </span>
+                    </div>
                   </div>
                   <div style={{
                     color: "#bbb",
@@ -546,6 +707,218 @@ export default function IndexingPanel() {
                     ))}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== ВКЛАДКА: Реранкинг ===== */}
+      {activeTab === "rerank" && (
+        <div>
+          <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+            <input
+              value={rerankQuery}
+              onChange={(e) => setRerankQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleRerankCompare()}
+              placeholder="Запрос для сравнения режимов..."
+              style={{
+                flex: 1,
+                background: "#1e1e1e",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: "4px",
+                padding: "6px 8px",
+                fontSize: "12px",
+              }}
+            />
+            <button
+              onClick={handleRerankCompare}
+              disabled={loading || !rerankQuery.trim()}
+              style={{
+                background: "#9c27b0",
+                color: "#fff",
+                border: "none",
+                borderRadius: "4px",
+                padding: "5px 14px",
+                cursor: loading ? "wait" : "pointer",
+                fontSize: "12px",
+                opacity: loading || !rerankQuery.trim() ? 0.7 : 1,
+              }}
+            >
+              {loading ? "Сравнение..." : "Сравнить"}
+            </button>
+          </div>
+
+          {/* Настройки */}
+          <div style={{
+            background: "#1a1a1a",
+            padding: "8px",
+            borderRadius: "4px",
+            marginBottom: "8px",
+            fontSize: "11px",
+            display: "flex",
+            gap: "8px",
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}>
+            <label style={{ color: "#aaa" }}>Порог:</label>
+            <input
+              type="number"
+              value={rerankThreshold}
+              onChange={(e) => setRerankThreshold(Number(e.target.value))}
+              min={0}
+              max={1}
+              step={0.05}
+              style={{
+                width: "55px",
+                background: "#1e1e1e",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: "4px",
+                padding: "3px 6px",
+                fontSize: "11px",
+                textAlign: "center",
+              }}
+            />
+            <label style={{ color: "#aaa" }}>top_k до:</label>
+            <input
+              type="number"
+              value={rerankTopKInitial}
+              onChange={(e) => setRerankTopKInitial(Number(e.target.value))}
+              min={1}
+              max={50}
+              style={{
+                width: "40px",
+                background: "#1e1e1e",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: "4px",
+                padding: "3px 6px",
+                fontSize: "11px",
+                textAlign: "center",
+              }}
+            />
+            <label style={{ color: "#aaa" }}>после:</label>
+            <input
+              type="number"
+              value={rerankTopKFinal}
+              onChange={(e) => setRerankTopKFinal(Number(e.target.value))}
+              min={1}
+              max={20}
+              style={{
+                width: "40px",
+                background: "#1e1e1e",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: "4px",
+                padding: "3px 6px",
+                fontSize: "11px",
+                textAlign: "center",
+              }}
+            />
+            <label style={{ color: "#aaa", display: "flex", alignItems: "center", gap: "4px", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={rerankRewrite}
+                onChange={(e) => setRerankRewrite(e.target.checked)}
+              />
+              Переписать запрос
+            </label>
+          </div>
+
+          {/* Результаты сравнения */}
+          {rerankResult && (
+            <div>
+              <div style={{ color: "#aaa", fontSize: "12px", marginBottom: "4px" }}>
+                Запрос: «{rerankResult.query}»
+                {rerankResult.rewritten_query && (
+                  <span style={{ marginLeft: "8px", color: "#64b5f6" }}>
+                    (переписан: «{rerankResult.rewritten_query}»)
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "6px", overflowX: "auto" }}>
+                {Object.entries(rerankResult.modes).map(([mode, resp]) => {
+                  const modeColors: Record<string, string> = {
+                    none: "#888",
+                    threshold: "#ff9800",
+                    keyword: "#4caf50",
+                  };
+                  const modeLabels: Record<string, string> = {
+                    none: "Без реранкинга",
+                    threshold: "Порог",
+                    keyword: "Keyword",
+                  };
+                  return (
+                    <div
+                      key={mode}
+                      style={{
+                        flex: 1,
+                        minWidth: "200px",
+                        background: "#1e1e1e",
+                        padding: "8px",
+                        borderRadius: "4px",
+                        borderTop: `3px solid ${modeColors[mode] || "#666"}`,
+                      }}
+                    >
+                      <div style={{
+                        color: modeColors[mode] || "#666",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        marginBottom: "4px",
+                      }}>
+                        {modeLabels[mode] || mode}
+                      </div>
+                      <div style={{ fontSize: "10px", color: "#aaa", marginBottom: "6px" }}>
+                        Результатов: {resp.results.length}
+                        {(resp.filtered_count ?? 0) > 0 && (
+                          <span> | Отфильтровано: {resp.filtered_count}</span>
+                        )}
+                      </div>
+                      {resp.results.map((r, i) => (
+                        <div
+                          key={r.chunk_id}
+                          style={{
+                            background: "#2a2a2a",
+                            padding: "5px 6px",
+                            borderRadius: "3px",
+                            marginBottom: "4px",
+                            borderLeft: `2px solid ${scoreColor(r.score)}`,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ color: "#ddd", fontSize: "10px" }}>
+                              #{i + 1} {r.source.split("/").pop()}
+                              {r.section && (
+                                <span style={{ color: "#ff9800" }}> [{r.section}]</span>
+                              )}
+                            </span>
+                            <div style={{ display: "flex", gap: "4px", fontSize: "10px" }}>
+                              {r.original_score != null && (
+                                <span style={{ color: "#888" }}>{(r.original_score * 100).toFixed(1)}%</span>
+                              )}
+                              <span style={{ color: scoreColor(r.score), fontWeight: 600 }}>
+                                {(r.score * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{
+                            color: "#999",
+                            fontSize: "10px",
+                            marginTop: "3px",
+                            maxHeight: "40px",
+                            overflow: "hidden",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                          }}>
+                            {r.content.slice(0, 150)}{r.content.length > 150 ? "..." : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

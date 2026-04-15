@@ -65,7 +65,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/invariants/` — глобальные инварианты (правила, которые ассистент обязан соблюдать): CRUD, toggle, инъекция в system prompt LLM
 - `backend/app/modules/tasks/` — конечный автомат задач (FSM): классификация сообщений, фазы planning→execution→validation→done, пауза/отмена (state_machine, service, repository, router, schemas)
 - `backend/app/modules/scheduler/` — планировщик задач с периодическим выполнением: APScheduler, сбор данных через MCPManager, генерация сводок через AgentRunner (service, repository, router, schemas, dependencies)
-- `backend/app/modules/indexing/` — индексация документов с эмбеддингами: 2 стратегии chunking (fixed_size, structural), генерация эмбеддингов через GigaChat SDK, семантический поиск по cosine similarity, сравнение стратегий (router, service, repository, schemas, dependencies, strategies/)
+- `backend/app/modules/indexing/` — индексация документов с эмбеддингами: 2 стратегии chunking (fixed_size, structural), генерация эмбеддингов через GigaChat SDK, семантический поиск по cosine similarity, реранкинг (threshold/keyword/LLM cross-encoder), query rewriting, сравнение стратегий и режимов реранкинга (router, service, repository, schemas, dependencies, strategies/)
 - `backend/mcp_servers/scheduler_server.py` — MCP-сервер планировщика (5 инструментов: create_scheduled_task, list_scheduled_tasks, get_task_results, get_task_summary, cancel_scheduled_task), отдельная БД scheduler.db
 - `backend/mcp_servers/research_server.py` — MCP-сервер для исследования файлов (3 инструмента: search_files, summarize_text, save_to_file), демонстрирует композицию инструментов в пайплайн
 - `backend/mcp_servers/system_server.py` — MCP-сервер системной информации (4 инструмента: current_datetime, disk_usage, list_processes, env_info)
@@ -96,7 +96,7 @@ npm run build     # TypeScript + Vite production сборка
 
 **Стриминг:** `POST /api/chat/stream` → SSE-события (delta, tool_call, tool_result, usage, done, error) → `fetch` + `ReadableStream`
 
-**RAG:** Флаг `use_rag: true` в ChatRequest активирует поиск по индексированным документам. Найденные чанки вставляются в system prompt, SSE-событие `sources` отправляется перед генерацией текста.
+**RAG:** Флаг `use_rag: true` в ChatRequest активирует поиск по индексированным документам. Параметры `rag_rerank_mode` (none/threshold/keyword/llm_cross_encoder) и `rag_score_threshold` управляют постобработкой результатов. Найденные чанки вставляются в system prompt, SSE-событие `sources` (с original_score и rerank_score) отправляется перед генерацией текста. Поддерживается query rewriting через LLM и сравнение режимов реранкинга.
 
 **MCP-серверы:** Конфигурация в `backend/data/mcp_servers.json`. При старте приложения MCPManager автоматически подключает серверы с `enabled: true`. Агент использует инструменты через GigaChat function calling. Зарегистрированные серверы: git (4 инструмента), scheduler (5), research (3), system (4), notes (5) — итого 21 инструмент.
 
@@ -106,7 +106,7 @@ npm run build     # TypeScript + Vite production сборка
 
 ```
 POST /api/chat
-Body: { messages: [{ role, content }], model?, temperature?, use_rag? }
+Body: { messages: [{ role, content }], model?, temperature?, use_rag?, rag_rerank_mode?, rag_score_threshold? }
 Response: { content: string, usage?: { prompt_tokens, completion_tokens, total_tokens } }
 
 POST /api/chat/stream (SSE)
@@ -239,8 +239,8 @@ Body: { paths: [string], strategy?: "fixed_size" | "structural" }
 Response: [{ document_id, filename, chunk_count, strategy }]
 
 POST /api/indexing/search
-Body: { query: string, top_k?: int }
-Response: { query, results: [{ chunk_id, document_id, source, section, content, score }] }
+Body: { query: string, top_k?: int, rerank_mode?: "none"|"threshold"|"keyword"|"llm_cross_encoder", score_threshold?: float, top_k_initial?: int, top_k_final?: int, rewrite_query?: bool }
+Response: { query, results: [{ chunk_id, document_id, source, section, content, score, original_score?, rerank_score? }], rewritten_query?, rerank_mode, filtered_count }
 
 GET /api/indexing/documents
 Response: [{ id, filename, title, chunking_strategy, chunk_count, created_at }]
@@ -250,6 +250,10 @@ Response: { id, filename, title, chunking_strategy, chunk_count, created_at }
 
 DELETE /api/indexing/documents/{doc_id}
 Response: { status: "deleted", document_id }
+
+POST /api/indexing/rerank-compare
+Body: { query: string, top_k_initial?: int, top_k_final?: int, score_threshold?: float, rewrite_query?: bool }
+Response: { query, rewritten_query?, modes: { "none": SearchResponse, "threshold": SearchResponse, "keyword": SearchResponse } }
 
 POST /api/indexing/compare
 Body: { paths: [string], query: string, top_k?: int }

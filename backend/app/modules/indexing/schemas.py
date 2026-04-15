@@ -1,10 +1,15 @@
 """Pydantic-схемы для модуля индексации документов."""
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 
 # Допустимые стратегии разбиения
 VALID_STRATEGIES = {"fixed_size", "structural"}
+
+# Режимы переранжирования результатов поиска
+RerankMode = Literal["none", "threshold", "keyword", "llm_cross_encoder"]
 
 
 class IndexRequest(BaseModel):
@@ -24,10 +29,16 @@ class IndexResponse(BaseModel):
 
 
 class SearchRequest(BaseModel):
-    """Запрос на семантический поиск."""
+    """Запрос на семантический поиск с опциональным переранжированием."""
 
     query: str
     top_k: int = 5
+    # Параметры переранжирования
+    rerank_mode: RerankMode = "none"
+    score_threshold: float = 0.0  # минимальный порог cosine similarity
+    top_k_initial: int = 20  # сколько извлечь до фильтрации
+    top_k_final: int = 5  # сколько вернуть после фильтрации
+    rewrite_query: bool = False  # переписать запрос через LLM
 
 
 class SearchResult(BaseModel):
@@ -39,6 +50,8 @@ class SearchResult(BaseModel):
     section: str | None
     content: str
     score: float
+    original_score: float | None = None  # исходный cosine similarity (до реранкинга)
+    rerank_score: float | None = None  # оценка переранжирования
 
 
 class SearchResponse(BaseModel):
@@ -46,6 +59,9 @@ class SearchResponse(BaseModel):
 
     results: list[SearchResult]
     query: str
+    rewritten_query: str | None = None  # переписанный запрос (если rewrite_query=True)
+    rerank_mode: str = "none"  # использованный режим переранжирования
+    filtered_count: int = 0  # сколько результатов отфильтровано
 
 
 class DocumentOut(BaseModel):
@@ -81,3 +97,21 @@ class CompareResponse(BaseModel):
 
     query: str
     strategies: list[CompareResult]
+
+
+class RerankCompareRequest(BaseModel):
+    """Запрос на сравнение режимов переранжирования."""
+
+    query: str
+    top_k_initial: int = 20
+    top_k_final: int = 5
+    score_threshold: float = 0.0
+    rewrite_query: bool = False
+
+
+class RerankCompareResponse(BaseModel):
+    """Результат сравнения режимов переранжирования."""
+
+    query: str
+    rewritten_query: str | None = None
+    modes: dict[str, SearchResponse]

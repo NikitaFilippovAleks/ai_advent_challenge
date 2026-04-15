@@ -31,6 +31,9 @@ export interface Message {
   toolCallId?: string;
 }
 
+// Режимы переранжирования результатов поиска
+export type RerankMode = "none" | "threshold" | "keyword" | "llm_cross_encoder";
+
 // Запрос к /api/chat и /api/chat/stream
 export interface ChatRequest {
   messages: Array<{ role: string; content: string }>;
@@ -38,6 +41,8 @@ export interface ChatRequest {
   temperature?: number;
   conversation_id?: string;
   use_rag?: boolean;
+  rag_rerank_mode?: string;
+  rag_score_threshold?: number;
 }
 
 // Диалог (для списка в сайдбаре)
@@ -277,12 +282,33 @@ export interface SearchResult {
   section: string | null;
   content: string;
   score: number;
+  original_score?: number | null;
+  rerank_score?: number | null;
 }
 
 // Ответ поиска
 export interface SearchResponse {
   results: SearchResult[];
   query: string;
+  rewritten_query?: string | null;
+  rerank_mode?: string;
+  filtered_count?: number;
+}
+
+// Запрос на сравнение режимов переранжирования
+export interface RerankCompareRequest {
+  query: string;
+  top_k_initial?: number;
+  top_k_final?: number;
+  score_threshold?: number;
+  rewrite_query?: boolean;
+}
+
+// Ответ сравнения режимов переранжирования
+export interface RerankCompareResponse {
+  query: string;
+  rewritten_query?: string | null;
+  modes: Record<string, SearchResponse>;
 }
 
 // Результат одной стратегии при сравнении
@@ -306,4 +332,6 @@ export interface RAGSource {
   section: string | null;
   content: string;
   score: number;
+  original_score?: number | null;
+  rerank_score?: number | null;
 }

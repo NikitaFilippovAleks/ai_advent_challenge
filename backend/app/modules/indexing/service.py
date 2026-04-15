@@ -4,6 +4,7 @@
 """
 
 import hashlib
+import json
 import logging
 import re
 from collections import Counter
@@ -11,6 +12,7 @@ from pathlib import Path
 
 import numpy as np
 from gigachat import GigaChat
+from gigachat.models import Messages, MessagesRole
 
 from app.core.config import settings
 from app.modules.indexing import repository
@@ -18,6 +20,7 @@ from app.modules.indexing.schemas import (
     CompareResponse,
     CompareResult,
     IndexResponse,
+    RerankCompareResponse,
     SearchResponse,
     SearchResult,
 )
@@ -238,27 +241,188 @@ class IndexingService:
 
         return results
 
+    # --- Методы реранкинга ---
+
+    def _rerank_threshold(
+        self, results: list[SearchResult], threshold: float
+    ) -> list[SearchResult]:
+        """Отсекает результаты с cosine similarity ниже порога."""
+        return [r for r in results if r.score >= threshold]
+
+    def _rerank_keyword(
+        self, query: str, results: list[SearchResult], alpha: float = 0.5
+    ) -> list[SearchResult]:
+        """Переранжирует по комбинации cosine similarity и keyword overlap.
+
+        Итоговый score = alpha * cosine + (1 - alpha) * keyword_overlap.
+        keyword_overlap = доля токенов запроса, найденных в тексте чанка (Jaccard-like).
+        """
+        query_tokens = set(_TOKEN_RE.findall(query.lower()))
+        if not query_tokens:
+            return results
+
+        reranked: list[SearchResult] = []
+        for r in results:
+            chunk_tokens = set(_TOKEN_RE.findall(r.content.lower()))
+            # Доля токенов запроса, присутствующих в чанке
+            overlap = len(query_tokens & chunk_tokens) / len(query_tokens)
+            cosine = r.score
+            final_score = alpha * cosine + (1 - alpha) * overlap
+            reranked.append(
+                r.model_copy(
+                    update={
+                        "original_score": round(cosine, 4),
+                        "rerank_score": round(overlap, 4),
+                        "score": round(final_score, 4),
+                    }
+                )
+            )
+
+        reranked.sort(key=lambda x: x.score, reverse=True)
+        return reranked
+
+    async def _rerank_llm(
+        self, query: str, results: list[SearchResult]
+    ) -> list[SearchResult]:
+        """Переранжирует через LLM cross-encoder: GigaChat оценивает релевантность.
+
+        Один вызов LLM на все чанки (батч-промпт). При ошибке — возвращает без изменений.
+        """
+        if not results:
+            return results
+
+        # Формируем промпт с пронумерованными чанками
+        chunks_text = ""
+        for i, r in enumerate(results):
+            preview = r.content[:300]
+            chunks_text += f"\n--- Чанк {i + 1} ---\n{preview}\n"
+
+        prompt = (
+            f"Запрос пользователя: \"{query}\"\n\n"
+            f"Ниже приведены {len(results)} текстовых фрагментов. "
+            "Оцени релевантность каждого фрагмента запросу по шкале от 0 до 10 "
+            "(0 = совсем не релевантен, 10 = идеально релевантен).\n"
+            f"{chunks_text}\n"
+            "Верни ТОЛЬКО JSON-массив целых чисел в порядке фрагментов, "
+            f"ровно {len(results)} элементов. Пример: [8, 3, 7, 1]"
+        )
+
+        try:
+            async with self._create_client() as client:
+                response = await client.achat(
+                    messages=[Messages(role=MessagesRole.USER, content=prompt)]
+                )
+                text = response.choices[0].message.content.strip()
+
+                # Парсим JSON-массив
+                scores: list[int] = []
+                try:
+                    scores = json.loads(text)
+                except json.JSONDecodeError:
+                    # Fallback: извлекаем числа через regex
+                    numbers = re.findall(r"\d+", text)
+                    scores = [int(n) for n in numbers]
+
+                if len(scores) != len(results):
+                    logger.warning(
+                        "LLM вернул %d оценок вместо %d, возвращаю без реранкинга",
+                        len(scores),
+                        len(results),
+                    )
+                    return results
+
+                # Нормализуем к 0-1 и комбинируем с cosine
+                reranked: list[SearchResult] = []
+                for r, llm_score in zip(results, scores):
+                    normalized = min(max(llm_score, 0), 10) / 10.0
+                    # Итоговый score = 0.4 * cosine + 0.6 * llm_score
+                    final = 0.4 * r.score + 0.6 * normalized
+                    reranked.append(
+                        r.model_copy(
+                            update={
+                                "original_score": round(r.score, 4),
+                                "rerank_score": round(normalized, 4),
+                                "score": round(final, 4),
+                            }
+                        )
+                    )
+                reranked.sort(key=lambda x: x.score, reverse=True)
+                return reranked
+
+        except Exception as e:
+            logger.warning("Ошибка LLM-реранкинга: %s, возвращаю без изменений", e)
+            return results
+
+    async def _rewrite_query(self, query: str) -> str:
+        """Переписывает поисковый запрос через LLM для улучшения извлечения."""
+        prompt = (
+            "Перепиши следующий поисковый запрос так, чтобы он лучше подходил "
+            "для поиска по технической документации и исходному коду. "
+            "Добавь ключевые термины и синонимы. "
+            "Верни ТОЛЬКО переписанный запрос, без пояснений.\n\n"
+            f"Запрос: {query}"
+        )
+
+        try:
+            async with self._create_client() as client:
+                response = await client.achat(
+                    messages=[Messages(role=MessagesRole.USER, content=prompt)]
+                )
+                rewritten = response.choices[0].message.content.strip()
+                logger.info("Запрос переписан: '%s' → '%s'", query, rewritten)
+                return rewritten
+        except Exception as e:
+            logger.warning("Ошибка переписывания запроса: %s, используем оригинал", e)
+            return query
+
+    # --- Основной метод поиска ---
+
     async def search(
         self,
         query: str,
         top_k: int = 5,
         document_ids: list[str] | None = None,
+        rerank_mode: str = "none",
+        score_threshold: float = 0.0,
+        top_k_initial: int = 20,
+        top_k_final: int = 5,
+        rewrite_query: bool = False,
     ) -> SearchResponse:
-        """Семантический поиск по индексу: эмбеддинг запроса → cosine similarity."""
+        """Семантический поиск по индексу с опциональным реранкингом.
+
+        При rerank_mode != 'none':
+        1. Переписывает запрос (если rewrite_query=True)
+        2. Извлекает top_k_initial результатов по cosine similarity
+        3. Фильтрует по score_threshold
+        4. Применяет реранкинг
+        5. Обрезает до top_k_final
+        """
+        rewritten_query: str | None = None
+        search_query = query
+
+        # Переписывание запроса через LLM
+        if rewrite_query:
+            search_query = await self._rewrite_query(query)
+            rewritten_query = search_query
+
         # Генерируем эмбеддинг запроса
-        query_embedding = (await self._generate_embeddings([query]))[0]
+        query_embedding = (await self._generate_embeddings([search_query]))[0]
         query_vec = np.array(query_embedding, dtype=np.float32)
 
         # Загружаем все чанки
         chunks = await repository.get_all_chunks(document_ids)
         if not chunks:
-            return SearchResponse(results=[], query=query)
+            return SearchResponse(
+                results=[],
+                query=query,
+                rewritten_query=rewritten_query,
+                rerank_mode=rerank_mode,
+            )
 
         # Вычисляем cosine similarity
         scored: list[tuple[float, dict]] = []
         for chunk in chunks:
             chunk_vec = np.array(chunk["embedding"], dtype=np.float32)
-            # cosine similarity = dot(a, b) / (norm(a) * norm(b))
             dot = np.dot(query_vec, chunk_vec)
             norm_q = np.linalg.norm(query_vec)
             norm_c = np.linalg.norm(chunk_vec)
@@ -268,9 +432,11 @@ class IndexingService:
                 score = 0.0
             scored.append((score, chunk))
 
-        # Сортируем по убыванию и берём top_k
         scored.sort(key=lambda x: x[0], reverse=True)
-        top_results = scored[:top_k]
+
+        # Определяем сколько извлечь на первом этапе
+        initial_limit = top_k_initial if rerank_mode != "none" else top_k
+        top_results = scored[:initial_limit]
 
         results = [
             SearchResult(
@@ -284,7 +450,97 @@ class IndexingService:
             for score, chunk in top_results
         ]
 
-        return SearchResponse(results=results, query=query)
+        # Реранкинг
+        total_before = len(results)
+        if rerank_mode != "none":
+            # Фильтрация по порогу
+            if score_threshold > 0:
+                results = self._rerank_threshold(results, score_threshold)
+
+            # Применяем реранкер
+            if rerank_mode == "keyword":
+                results = self._rerank_keyword(search_query, results)
+            elif rerank_mode == "llm_cross_encoder":
+                results = await self._rerank_llm(search_query, results)
+            elif rerank_mode == "threshold":
+                pass  # уже отфильтровано выше
+
+            # Обрезаем до top_k_final
+            results = results[:top_k_final]
+
+        filtered_count = total_before - len(results)
+
+        return SearchResponse(
+            results=results,
+            query=query,
+            rewritten_query=rewritten_query,
+            rerank_mode=rerank_mode,
+            filtered_count=filtered_count,
+        )
+
+    async def compare_reranking(
+        self,
+        query: str,
+        top_k_initial: int = 20,
+        top_k_final: int = 5,
+        score_threshold: float = 0.0,
+        rewrite_query: bool = False,
+    ) -> RerankCompareResponse:
+        """Сравнивает результаты поиска с разными режимами переранжирования.
+
+        Начальную выборку (cosine similarity) делает один раз,
+        затем применяет каждый режим реранкинга отдельно.
+        """
+        rewritten_query: str | None = None
+        search_query = query
+
+        if rewrite_query:
+            search_query = await self._rewrite_query(query)
+            rewritten_query = search_query
+
+        # Базовый поиск без реранкинга — один раз
+        base_result = await self.search(
+            search_query, top_k=top_k_initial, rerank_mode="none"
+        )
+        base_results = base_result.results
+
+        modes: dict[str, SearchResponse] = {}
+
+        # none — просто обрезаем до top_k_final
+        modes["none"] = SearchResponse(
+            results=base_results[:top_k_final],
+            query=query,
+            rewritten_query=rewritten_query,
+            rerank_mode="none",
+            filtered_count=0,
+        )
+
+        # threshold — только порог
+        threshold_results = self._rerank_threshold(base_results, score_threshold)
+        modes["threshold"] = SearchResponse(
+            results=threshold_results[:top_k_final],
+            query=query,
+            rewritten_query=rewritten_query,
+            rerank_mode="threshold",
+            filtered_count=len(base_results) - len(threshold_results),
+        )
+
+        # keyword — порог + keyword overlap
+        keyword_base = self._rerank_threshold(base_results, score_threshold)
+        keyword_results = self._rerank_keyword(search_query, keyword_base)
+        modes["keyword"] = SearchResponse(
+            results=keyword_results[:top_k_final],
+            query=query,
+            rewritten_query=rewritten_query,
+            rerank_mode="keyword",
+            filtered_count=len(base_results) - len(keyword_base),
+        )
+
+        return RerankCompareResponse(
+            query=query,
+            rewritten_query=rewritten_query,
+            modes=modes,
+        )
 
     async def compare_strategies(
         self, paths: list[str], query: str, top_k: int = 5
