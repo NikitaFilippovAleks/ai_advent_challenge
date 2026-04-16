@@ -1650,10 +1650,24 @@ body {
   font-size: 0.85em;
 }
 
+.sources-warning {
+  padding: 6px 10px;
+  background: #3b2e1a;
+  color: #e0af68;
+  font-size: 0.85em;
+  border-bottom: 1px solid #333;
+}
+
 .sources-header {
   padding: 6px 10px;
   background: #1a1a2e;
   color: #888;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.source-index {
+  color: #bb9af7;
   font-weight: 600;
   font-size: 0.9em;
 }

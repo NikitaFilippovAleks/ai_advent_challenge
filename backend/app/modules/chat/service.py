@@ -107,18 +107,22 @@ class ChatService:
             f"{invariants_text}"
         )
 
+    # Порог релевантности: если лучший score ниже — режим "не знаю"
+    LOW_RELEVANCE_THRESHOLD = 0.3
+
     async def _build_rag_context(
         self,
         query: str,
         rerank_mode: str = "keyword",
         score_threshold: float = 0.1,
-    ) -> tuple[str | None, list[dict]]:
+    ) -> tuple[str | None, list[dict], bool]:
         """Ищет релевантные чанки и формирует RAG-контекст с переранжированием.
 
-        Возвращает (system_message_text, sources_list) или (None, []) если поиск пуст.
+        Возвращает (system_message_text, sources_list, is_low_relevance)
+        или (None, [], False) если поиск пуст.
         """
         if not self._indexing:
-            return None, []
+            return None, [], False
 
         search_result = await self._indexing.search(
             query,
@@ -129,11 +133,12 @@ class ChatService:
             top_k_final=5,
         )
         if not search_result.results:
-            return None, []
+            return None, [], False
 
         # Формируем список источников для SSE-события
         sources = [
             {
+                "chunk_id": r.chunk_id,
                 "document_id": r.document_id,
                 "source": r.source,
                 "section": r.section,
@@ -145,11 +150,33 @@ class ChatService:
             for r in search_result.results
         ]
 
-        # Формируем текст для system prompt
+        # Проверяем релевантность: если лучший score ниже порога — режим "не знаю"
+        max_score = max(r.score for r in search_result.results)
+        is_low_relevance = max_score < self.LOW_RELEVANCE_THRESHOLD
+
+        if is_low_relevance:
+            low_relevance_prompt = (
+                "Контекст из базы знаний имеет очень низкую релевантность к вопросу пользователя. "
+                "Ответь СТРОГО: «К сожалению, в имеющихся документах я не нашёл достаточно "
+                "релевантной информации по вашему вопросу. Пожалуйста, уточните запрос или "
+                "переформулируйте вопрос.» НЕ пытайся отвечать на основе общих знаний."
+            )
+            return low_relevance_prompt, sources, True
+
+        # Формируем текст для system prompt с обязательными цитатами
         parts = [
-            "Используй следующие источники для ответа на вопрос пользователя.",
-            "Ссылайся на источники в ответе, указывая имя файла.",
-            "Если источники не содержат нужной информации, скажи об этом.",
+            "ПРАВИЛА ОТВЕТА С ИСТОЧНИКАМИ:",
+            "",
+            "1. Отвечай ТОЛЬКО на основе предоставленных источников ниже.",
+            "2. В ответе ОБЯЗАТЕЛЬНО укажи:",
+            "   - Ответ на вопрос пользователя",
+            "   - Цитаты — дословные фрагменты из источников в формате: > «цитата» — [Источник N]",
+            "   - В конце ответа — список использованных источников: **Источники:** [Источник N] файл: ..., секция: ...",
+            "3. Каждое утверждение подкрепляй цитатой из источника.",
+            "4. Если источники НЕ содержат информации для ответа — ответь СТРОГО:",
+            '   «К сожалению, в имеющихся документах я не нашёл информации по вашему вопросу. '
+            'Пожалуйста, уточните запрос или переформулируйте вопрос.»',
+            "   НЕ пытайся отвечать на основе общих знаний.",
             "",
         ]
         for i, r in enumerate(search_result.results, 1):
@@ -158,7 +185,7 @@ class ChatService:
             parts.append(r.content)
             parts.append("")
 
-        return "\n".join(parts), sources
+        return "\n".join(parts), sources, False
 
     async def _build_task_prompt(self, conversation_id: str, user_text: str) -> tuple[str | None, dict | None]:
         """Возвращает (task_system_prompt, active_task) или (None, None).
@@ -241,7 +268,7 @@ class ChatService:
                 messages.insert(0, {"role": "system", "content": invariants_text})
             # RAG — вставляем контекст из индексированных документов
             if request.use_rag:
-                rag_text, _rag_sources = await self._build_rag_context(
+                rag_text, _rag_sources, _low_rel = await self._build_rag_context(
                     user_msg.content,
                     rerank_mode=request.rag_rerank_mode,
                     score_threshold=request.rag_score_threshold,
@@ -361,8 +388,9 @@ class ChatService:
                     messages.insert(0, {"role": "system", "content": invariants_text})
                 # RAG — вставляем контекст и запоминаем источники
                 rag_sources = []
+                is_low_relevance = False
                 if request.use_rag:
-                    rag_text, rag_sources = await self._build_rag_context(
+                    rag_text, rag_sources, is_low_relevance = await self._build_rag_context(
                         user_text,
                         rerank_mode=request.rag_rerank_mode,
                         score_threshold=request.rag_score_threshold,
@@ -388,7 +416,10 @@ class ChatService:
 
             # Отправляем SSE-событие sources до начала генерации
             if request.use_rag and rag_sources:
-                sources_data = json.dumps({"sources": rag_sources}, ensure_ascii=False)
+                sources_data = json.dumps(
+                    {"sources": rag_sources, "low_relevance": is_low_relevance},
+                    ensure_ascii=False,
+                )
                 yield f"event: sources\ndata: {sources_data}\n\n"
 
             # Используем AgentRunner если он есть (поддержка MCP-инструментов)

@@ -38,7 +38,7 @@ function MessageBubble({ message }: Props) {
           )}
           <ReactMarkdown>{displayContent}</ReactMarkdown>
           {message.sources && message.sources.length > 0 && (
-            <SourcesPanel sources={message.sources} />
+            <SourcesPanel sources={message.sources} lowRelevance={message.lowRelevance} />
           )}
         </div>
       ) : (

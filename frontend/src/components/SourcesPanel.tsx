@@ -2,14 +2,20 @@ import { RAGSource } from "../types";
 
 interface Props {
   sources: RAGSource[];
+  lowRelevance?: boolean;
 }
 
 // Панель отображения RAG-источников, использованных при генерации ответа
-function SourcesPanel({ sources }: Props) {
+function SourcesPanel({ sources, lowRelevance }: Props) {
   if (sources.length === 0) return null;
 
   return (
     <div className="sources-panel">
+      {lowRelevance && (
+        <div className="sources-warning">
+          ⚠ Низкая релевантность источников — ответ может быть неточным
+        </div>
+      )}
       <div className="sources-header">
         Источники ({sources.length})
       </div>
@@ -17,6 +23,7 @@ function SourcesPanel({ sources }: Props) {
         {sources.map((s, i) => (
           <div key={i} className="source-item">
             <div className="source-meta">
+              <span className="source-index">[Источник {i + 1}]</span>
               <span className="source-file">{s.source}</span>
               {s.section && <span className="source-section">{s.section}</span>}
               {s.original_score != null && (

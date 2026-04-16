@@ -26,6 +26,7 @@ export interface Message {
   responseTime?: number;    // время ответа в мс (только для assistant)
   toolEvents?: ToolEvent[]; // события tool call/result для структурированного отображения
   sources?: RAGSource[];       // RAG-источники
+  lowRelevance?: boolean;      // флаг низкой релевантности RAG-источников
   // Подготовка для агентной архитектуры (пока не используются)
   toolCalls?: ToolCall[];
   toolCallId?: string;
@@ -327,6 +328,7 @@ export interface CompareResponse {
 
 // Источник RAG-ответа (SSE-событие sources)
 export interface RAGSource {
+  chunk_id: number;
   document_id: string;
   source: string;
   section: string | null;

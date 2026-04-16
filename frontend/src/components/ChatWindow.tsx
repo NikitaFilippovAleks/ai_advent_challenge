@@ -267,11 +267,12 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           // Сбрасываем буфер — после tool calls пойдёт финальный текст
           streamBufferRef.current = "";
         },
-        onSources: (sources: RAGSource[]) => {
+        onSources: (sources: RAGSource[], lowRelevance?: boolean) => {
           setMessages((prev) => {
             const updated = [...prev];
             const last = { ...updated[updated.length - 1] };
             last.sources = sources;
+            last.lowRelevance = lowRelevance ?? false;
             updated[updated.length - 1] = last;
             return updated;
           });

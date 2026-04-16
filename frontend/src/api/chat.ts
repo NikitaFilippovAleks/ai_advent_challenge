@@ -38,7 +38,7 @@ export interface StreamCallbacks {
   onError: (error: Error) => void;
   onToolCall?: (event: ToolCallEvent) => void;
   onToolResult?: (event: ToolResultEvent) => void;
-  onSources?: (sources: RAGSource[]) => void;
+  onSources?: (sources: RAGSource[], lowRelevance?: boolean) => void;
 }
 
 // Стриминг ответа через SSE (fetch + ReadableStream)
@@ -112,7 +112,7 @@ export async function streamMessage(
         } else if (eventType === "tool_result") {
           callbacks.onToolResult?.(data);
         } else if (eventType === "sources") {
-          callbacks.onSources?.(data.sources);
+          callbacks.onSources?.(data.sources, data.low_relevance);
         }
       }
     }
