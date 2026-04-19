@@ -7,7 +7,11 @@
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator, Callable, Awaitable
+
+# Токенайзер для keyword-реранкинга (буквы/цифры, по аналогии с indexing/service)
+_TOKEN_RE = re.compile(r"[\w\-]+", re.UNICODE)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,10 @@ from app.modules.conversations.repository import (
     add_message_to_branch,
     get_messages,
     update_conversation_title,
+)
+from app.modules.memory.repository import (
+    get_insights,
+    get_working_memory,
 )
 from app.shared.llm.gigachat import GigaChatProvider
 
@@ -107,14 +115,81 @@ class ChatService:
             f"{invariants_text}"
         )
 
-    # Порог релевантности: если лучший score ниже — режим "не знаю"
-    LOW_RELEVANCE_THRESHOLD = 0.3
+    # Порог релевантности: если лучший score ниже — режим "не знаю".
+    # Значение подобрано под эмбеддинги GigaChat — на русских текстах
+    # cosine similarity редко превышает 0.3 даже для очень релевантных чанков.
+    LOW_RELEVANCE_THRESHOLD = 0.15
+
+    def _keyword_rerank(self, query: str, results: list, alpha: float = 0.3):
+        """Реранкинг по ОРИГИНАЛЬНОМУ короткому запросу.
+
+        Отличается от indexing._rerank_keyword тем, что использует
+        короткий query без контекста — это даёт максимальный вес
+        точным совпадениям ("Vue", "MongoDB", "Meilisearch").
+        alpha=0.3 → keyword-overlap важнее, чем cosine similarity.
+        """
+        query_tokens = set(t.lower() for t in _TOKEN_RE.findall(query) if len(t) > 2)
+        if not query_tokens:
+            return results
+
+        reranked = []
+        for r in results:
+            chunk_tokens = set(t.lower() for t in _TOKEN_RE.findall(r.content))
+            overlap = len(query_tokens & chunk_tokens) / len(query_tokens)
+            cosine = r.score
+            final_score = alpha * cosine + (1 - alpha) * overlap
+            reranked.append(
+                r.model_copy(update={
+                    "original_score": round(cosine, 4),
+                    "rerank_score": round(overlap, 4),
+                    "score": round(final_score, 4),
+                })
+            )
+        reranked.sort(key=lambda x: x.score, reverse=True)
+        return reranked
+
+    def _enrich_query_with_context(
+        self, query: str, history: list[dict] | None
+    ) -> str:
+        """Обогащает короткий follow-up-запрос контекстом предыдущих сообщений.
+
+        Эмбеддер плохо ищет по коротким вопросам типа «Vue можно?» —
+        без темы диалога они не находят релевантные чанки. Склеиваем
+        последние 3 пользовательские реплики + последний ответ ассистента
+        в один более «жирный» query-текст. Источники при этом не меняются.
+        """
+        if not history:
+            return query
+
+        # Берём до 3 предыдущих пользовательских сообщений (кроме текущего)
+        prev_user_texts = [
+            m["content"] for m in history
+            if m.get("role") == "user" and m.get("content")
+        ][-4:-1]  # до 3 предыдущих
+
+        last_assistant = next(
+            (m["content"] for m in reversed(history)
+             if m.get("role") == "assistant" and m.get("content")),
+            None,
+        )
+
+        parts: list[str] = []
+        for text in prev_user_texts:
+            parts.append(text[:200])
+        if last_assistant:
+            parts.append(last_assistant[:400])
+        # Текущий вопрос дублируем 2 раза — чтобы он доминировал в эмбеддинге
+        parts.append(query)
+        parts.append(query)
+
+        return " | ".join(parts)
 
     async def _build_rag_context(
         self,
         query: str,
         rerank_mode: str = "keyword",
         score_threshold: float = 0.1,
+        history: list[dict] | None = None,
     ) -> tuple[str | None, list[dict], bool]:
         """Ищет релевантные чанки и формирует RAG-контекст с переранжированием.
 
@@ -124,14 +199,27 @@ class ChatService:
         if not self._indexing:
             return None, [], False
 
+        search_query = self._enrich_query_with_context(query, history)
+
+        # Двухэтапный поиск:
+        # 1) эмбеддер работает по обогащённому query (context-aware)
+        # 2) keyword-rerank работает по ОРИГИНАЛЬНОМУ короткому query,
+        #    чтобы "Vue"/"MongoDB" не размывались контекстом.
         search_result = await self._indexing.search(
-            query,
-            top_k=5,
-            rerank_mode=rerank_mode,
-            score_threshold=score_threshold,
-            top_k_initial=15,
-            top_k_final=5,
+            search_query,
+            top_k=30,
+            rerank_mode="none",
+            score_threshold=0.0,
+            top_k_initial=30,
+            top_k_final=30,
         )
+        # Применяем keyword-реранкинг по исходному короткому запросу
+        if search_result.results and rerank_mode == "keyword":
+            search_result.results = self._keyword_rerank(
+                query, search_result.results
+            )[:8]
+        else:
+            search_result.results = search_result.results[:8]
         if not search_result.results:
             return None, [], False
 
@@ -165,18 +253,26 @@ class ChatService:
 
         # Формируем текст для system prompt с обязательными цитатами
         parts = [
-            "ПРАВИЛА ОТВЕТА С ИСТОЧНИКАМИ:",
+            "ПРАВИЛА ОТВЕТА С ИСТОЧНИКАМИ (ОБЯЗАТЕЛЬНЫ):",
             "",
-            "1. Отвечай ТОЛЬКО на основе предоставленных источников ниже.",
-            "2. В ответе ОБЯЗАТЕЛЬНО укажи:",
-            "   - Ответ на вопрос пользователя",
-            "   - Цитаты — дословные фрагменты из источников в формате: > «цитата» — [Источник N]",
-            "   - В конце ответа — список использованных источников: **Источники:** [Источник N] файл: ..., секция: ...",
-            "3. Каждое утверждение подкрепляй цитатой из источника.",
-            "4. Если источники НЕ содержат информации для ответа — ответь СТРОГО:",
+            "1. ВНИМАТЕЛЬНО прочитай все источники ниже перед ответом.",
+            "2. Отвечай ТОЛЬКО на основе предоставленных источников ниже — "
+            "НЕ добавляй информацию из общих знаний, НЕ придумывай, НЕ делай "
+            "предположений «исходя из общей практики».",
+            "3. Если в источниках есть прямой запрет (слова «запрещено», "
+            "«нельзя», «не разрешено» и т.п.) — ответ должен быть категоричным "
+            "«запрещено/нельзя», с дословной цитатой. Запрещено смягчать или "
+            "интерпретировать запреты как «рекомендации».",
+            "4. В ответе ОБЯЗАТЕЛЬНО:",
+            "   - Прямой ответ на вопрос (одно предложение)",
+            "   - Дословная цитата из источника в формате: > «цитата» — [Источник N]",
+            "   - В конце — **Источники:** [Источник N] файл: ..., секция: ...",
+            "5. Если источники НЕ содержат информации для ответа — ответь СТРОГО:",
             '   «К сожалению, в имеющихся документах я не нашёл информации по вашему вопросу. '
             'Пожалуйста, уточните запрос или переформулируйте вопрос.»',
             "   НЕ пытайся отвечать на основе общих знаний.",
+            "6. НЕ вызывай никакие инструменты (tool-calls) — ответ строй только "
+            "из текста источников ниже.",
             "",
         ]
         for i, r in enumerate(search_result.results, 1):
@@ -186,6 +282,65 @@ class ChatService:
             parts.append("")
 
         return "\n".join(parts), sources, False
+
+    # Приоритет категорий рабочей памяти при выводе в промпт
+    _WORKING_CATEGORY_ORDER = ["goal", "constraint", "decision", "result", "fact"]
+    _WORKING_CATEGORY_LABELS = {
+        "goal": "ЦЕЛЬ ДИАЛОГА",
+        "constraint": "ОГРАНИЧЕНИЯ / ТЕРМИНЫ",
+        "decision": "ПРИНЯТЫЕ РЕШЕНИЯ",
+        "result": "ПРОМЕЖУТОЧНЫЕ РЕЗУЛЬТАТЫ",
+        "fact": "УТОЧНЁННЫЕ ФАКТЫ",
+    }
+
+    async def _build_task_memory_text(self, conversation_id: str) -> str | None:
+        """Формирует блок «Память задачи» для system prompt.
+
+        Собирает рабочую память (goal/constraint/decision/result/fact)
+        и последние краткосрочные наблюдения. Используется всегда —
+        даже при стратегии summary и при включённом RAG, чтобы ассистент
+        не терял цель и зафиксированные ограничения в длинных диалогах.
+        """
+        try:
+            working = await get_working_memory(conversation_id)
+            insights = await get_insights(conversation_id)
+        except Exception as e:
+            logger.warning("Не удалось загрузить память задачи: %s", e)
+            return None
+
+        if not working and not insights:
+            return None
+
+        # Группируем рабочую память по категориям
+        by_category: dict[str, list[dict]] = {}
+        for item in working:
+            by_category.setdefault(item["category"], []).append(item)
+
+        parts = ["ПАМЯТЬ ЗАДАЧИ (не теряй это в ответе):"]
+
+        for cat in self._WORKING_CATEGORY_ORDER:
+            items = by_category.get(cat)
+            if not items:
+                continue
+            label = self._WORKING_CATEGORY_LABELS.get(cat, cat.upper())
+            parts.append(f"\n{label}:")
+            for it in items:
+                parts.append(f"  - {it['key']}: {it['value']}")
+
+        # Последние 5 наблюдений — даёт модели «текущий фокус» диалога
+        if insights:
+            recent = insights[-5:]
+            parts.append("\nНЕДАВНИЕ НАБЛЮДЕНИЯ ПО ДИАЛОГУ:")
+            for ins in recent:
+                parts.append(f"  - {ins['content']}")
+
+        parts.append(
+            "\nИспользуй эту память как устойчивый контекст задачи. "
+            "Не противоречь зафиксированным целям и ограничениям. "
+            "Если пользователь меняет цель/ограничение — подтверди изменение явно."
+        )
+
+        return "\n".join(parts)
 
     async def _build_task_prompt(self, conversation_id: str, user_text: str) -> tuple[str | None, dict | None]:
         """Возвращает (task_system_prompt, active_task) или (None, None).
@@ -272,12 +427,20 @@ class ChatService:
                     user_msg.content,
                     rerank_mode=request.rag_rerank_mode,
                     score_threshold=request.rag_score_threshold,
+                    history=messages,
                 )
                 if rag_text:
                     messages.insert(
                         len([m for m in messages if m["role"] == "system"]),
                         {"role": "system", "content": rag_text},
                     )
+            # Память задачи — goal/constraints/decisions + недавние наблюдения.
+            # Инжектим всегда, независимо от стратегии, чтобы в длинных
+            # диалогах ассистент не терял цель и зафиксированные ограничения.
+            task_memory_text = await self._build_task_memory_text(request.conversation_id)
+            if task_memory_text:
+                sys_count = len([m for m in messages if m["role"] == "system"])
+                messages.insert(sys_count, {"role": "system", "content": task_memory_text})
             # Задачи — промпт текущей фазы FSM
             task_prompt, active_task = await self._build_task_prompt(
                 request.conversation_id, user_msg.content
@@ -292,8 +455,11 @@ class ChatService:
             messages = [m.model_dump() for m in request.messages]
             active_task = None
 
-        # Используем AgentRunner если он есть (поддержка MCP-инструментов)
-        if self._agent:
+        # При включённом RAG — обходим AgentRunner, чтобы LLM не дёргала
+        # MCP-инструменты (search_files и т.п.) вместо ответа из переданного
+        # RAG-контекста. Чистый RAG-режим: только документы из индекса.
+        use_agent = self._agent and not request.use_rag
+        if use_agent:
             result = await self._agent.run(
                 messages, model=request.model, temperature=request.temperature
             )
@@ -394,12 +560,23 @@ class ChatService:
                         user_text,
                         rerank_mode=request.rag_rerank_mode,
                         score_threshold=request.rag_score_threshold,
+                        history=messages,
                     )
                     if rag_text:
                         messages.insert(
                             len([m for m in messages if m["role"] == "system"]),
                             {"role": "system", "content": rag_text},
                         )
+                # Память задачи — goal/constraints/decisions + недавние наблюдения.
+                # Инжектим всегда, чтобы ассистент не терял цель в длинных диалогах.
+                task_memory_text = await self._build_task_memory_text(
+                    request.conversation_id
+                )
+                if task_memory_text:
+                    sys_count = len([m for m in messages if m["role"] == "system"])
+                    messages.insert(
+                        sys_count, {"role": "system", "content": task_memory_text}
+                    )
                 # Задачи — промпт текущей фазы FSM
                 task_prompt, active_task = await self._build_task_prompt(
                     request.conversation_id, user_text
@@ -422,10 +599,12 @@ class ChatService:
                 )
                 yield f"event: sources\ndata: {sources_data}\n\n"
 
-            # Используем AgentRunner если он есть (поддержка MCP-инструментов)
+            # При включённом RAG — обходим AgentRunner, чтобы LLM не дёргала
+            # MCP-инструменты вместо ответа из RAG-контекста.
+            use_agent_stream = self._agent and not request.use_rag
             stream_source = (
                 self._agent.run_stream(messages, model=request.model, temperature=request.temperature)
-                if self._agent
+                if use_agent_stream
                 else self._llm.stream(messages, model=request.model, temperature=request.temperature)
             )
             async for event in stream_source:

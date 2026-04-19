@@ -23,6 +23,9 @@ import {
 
 // Файлы проекта для индексации по умолчанию
 const DEFAULT_PATHS = [
+  // Тестовые документы для сценариев дня 25 (RAG + память задачи)
+  "/app/data/rag_docs/tech_stack_guide.md",
+  "/app/data/rag_docs/saas_contract_policy.md",
   "/repo/.claude/CLAUDE.md",
   "/repo/.claude/rules/architecture.md",
   "/repo/.claude/rules/stack.md",
