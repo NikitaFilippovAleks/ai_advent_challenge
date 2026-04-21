@@ -11,6 +11,10 @@ services:
       - .:/repo
     env_file:
       - .env
+    # Нужно для доступа к LM Studio, запущенному на хосте (Linux).
+    # На macOS/Windows host.docker.internal работает из коробки.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   frontend:
     build:

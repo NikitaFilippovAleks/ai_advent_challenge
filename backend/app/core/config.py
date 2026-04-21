@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     gigachat_verify_ssl: bool = False
     gigachat_model: str = "GigaChat"
 
+    # LM Studio (OpenAI-совместимый локальный сервер для маленьких моделей)
+    # На macOS/Windows host.docker.internal резолвится автоматически,
+    # на Linux нужен extra_hosts в docker-compose.yml.
+    lmstudio_base_url: str = "http://host.docker.internal:1234/v1"
+    lmstudio_api_key: str = "lm-studio"  # LM Studio игнорирует ключ, но openai SDK требует непустую строку
+    lmstudio_default_model: str = "llama-3.2-1b-instruct"
+
     # Управление контекстом
     context_recent_count: int = 10
     context_summary_block_size: int = 10

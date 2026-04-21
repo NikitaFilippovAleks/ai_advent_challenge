@@ -26,6 +26,7 @@ from app.modules.profiles.router import router as profiles_router
 from app.modules.scheduler.dependencies import get_scheduler_service
 from app.modules.scheduler.router import router as scheduler_router
 from app.modules.indexing.router import router as indexing_router
+from app.modules.playground.router import router as playground_router
 from app.modules.tasks.router import router as tasks_router
 
 logger = logging.getLogger(__name__)
@@ -68,3 +69,4 @@ app.include_router(tasks_router)
 app.include_router(agent_router)
 app.include_router(scheduler_router)
 app.include_router(indexing_router)
+app.include_router(playground_router)
