@@ -2,7 +2,7 @@
 // Stateless: история живёт только в стейте компонента. Без БД, памяти, RAG, агента, стратегий.
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { Message, ModelInfo } from "../types";
+import { Message, ModelInfo, RAGSource } from "../types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import {
@@ -10,6 +10,10 @@ import {
   streamPlayground,
   PlaygroundMessage,
 } from "../api/playground";
+
+// Ключи localStorage — чтобы RAG-настройки сохранялись между сессиями
+const LS_USE_RAG = "playground.useRag";
+const LS_RAG_RERANK = "playground.ragRerank";
 
 function PlaygroundWindow() {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -20,6 +24,20 @@ function PlaygroundWindow() {
   const [isLoading, setIsLoading] = useState(false);
   // Ошибка загрузки моделей / подключения к LM Studio
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  // Переключатели RAG — та же семантика, что в основном ChatWindow.
+  const [useRag, setUseRag] = useState<boolean>(
+    () => localStorage.getItem(LS_USE_RAG) === "1",
+  );
+  const [ragRerankMode, setRagRerankMode] = useState<string>(
+    () => localStorage.getItem(LS_RAG_RERANK) || "keyword",
+  );
+
+  useEffect(() => {
+    localStorage.setItem(LS_USE_RAG, useRag ? "1" : "0");
+  }, [useRag]);
+  useEffect(() => {
+    localStorage.setItem(LS_RAG_RERANK, ragRerankMode);
+  }, [ragRerankMode]);
 
   const abortRef = useRef<AbortController | null>(null);
   const streamBufferRef = useRef("");
@@ -112,8 +130,19 @@ function PlaygroundWindow() {
         model: selectedModel || undefined,
         temperature,
         system_prompt: systemPrompt.trim() || undefined,
+        use_rag: useRag || undefined,
+        rag_rerank_mode: useRag ? ragRerankMode : undefined,
       },
       {
+        onSources: (sources: RAGSource[], lowRelevance: boolean) => {
+          // Привязываем источники к последнему ассистент-сообщению.
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            updated[updated.length - 1] = { ...last, sources, lowRelevance };
+            return updated;
+          });
+        },
         onDelta: (content) => {
           streamBufferRef.current += content;
           if (rafIdRef.current === null) {
@@ -231,6 +260,32 @@ function PlaygroundWindow() {
           <button className="memory-toggle-btn" onClick={loadModels} title="Обновить список моделей">
             ↻ Модели
           </button>
+          {/* Переключатель RAG: по той же логике, что в ChatWindow */}
+          <button
+            className={`memory-toggle-btn${useRag ? " active" : ""}`}
+            onClick={() => setUseRag((prev) => !prev)}
+            title={useRag ? "Выключить RAG" : "Включить RAG"}
+          >
+            RAG {useRag ? "✓" : ""}
+          </button>
+          {useRag && (
+            <select
+              value={ragRerankMode}
+              onChange={(e) => setRagRerankMode(e.target.value)}
+              title="Режим реранкинга RAG"
+              style={{
+                background: "#1e1e1e",
+                color: "#ccc",
+                border: "1px solid #444",
+                borderRadius: "4px",
+                padding: "2px 4px",
+                fontSize: "11px",
+              }}
+            >
+              <option value="none">Без реранкинга</option>
+              <option value="keyword">Keyword</option>
+            </select>
+          )}
           <button
             className="memory-toggle-btn"
             onClick={handleClear}
@@ -270,7 +325,8 @@ function PlaygroundWindow() {
             >
               Playground для тестирования локальных моделей через LM Studio.
               <br />
-              Без памяти, стратегий контекста, RAG и агента — только чистая модель.
+              Stateless-чат без памяти и агента. Опционально можно включить RAG
+              (retrieval и генерация — полностью локально).
             </div>
           )}
           <MessageList messages={messages} isLoading={isLoading} onStop={handleStop} />

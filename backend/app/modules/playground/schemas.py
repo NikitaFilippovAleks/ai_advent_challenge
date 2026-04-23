@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel
 
+from app.modules.indexing.schemas import RerankMode
+
 
 class PlaygroundMessage(BaseModel):
     """Одно сообщение в stateless-чате playground."""
@@ -20,6 +22,13 @@ class PlaygroundChatRequest(BaseModel):
     model: str | None = None
     temperature: float | None = 0.7
     system_prompt: str | None = None
+
+    # RAG-параметры. Если use_rag=False — поиск не выполняется, поведение
+    # playground остаётся прежним (чистая модель без внешнего контекста).
+    use_rag: bool = False
+    rag_rerank_mode: RerankMode | None = "keyword"
+    rag_score_threshold: float | None = None
+    rag_top_k: int | None = 8
 
 
 class PlaygroundModel(BaseModel):

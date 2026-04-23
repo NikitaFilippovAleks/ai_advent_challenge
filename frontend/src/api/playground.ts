@@ -1,7 +1,7 @@
 // API-клиент для playground-режима (локальные модели через LM Studio).
 // Stateless: вся история сообщений живёт в стейте компонента и шлётся в каждом запросе.
 
-import { ModelInfo, UsageInfo } from "../types";
+import { ModelInfo, RAGSource, UsageInfo } from "../types";
 
 export interface PlaygroundMessage {
   role: "user" | "assistant" | "system";
@@ -13,6 +13,11 @@ export interface PlaygroundRequest {
   model?: string;
   temperature?: number;
   system_prompt?: string;
+  // RAG-параметры. Если use_rag=false — поиск не выполняется.
+  use_rag?: boolean;
+  rag_rerank_mode?: string;
+  rag_score_threshold?: number;
+  rag_top_k?: number;
 }
 
 export interface PlaygroundStreamCallbacks {
@@ -20,6 +25,7 @@ export interface PlaygroundStreamCallbacks {
   onUsage: (usage: UsageInfo) => void;
   onDone: () => void;
   onError: (error: Error) => void;
+  onSources?: (sources: RAGSource[], lowRelevance: boolean) => void;
 }
 
 // Получить список моделей из LM Studio.
@@ -87,6 +93,9 @@ export async function streamPlayground(
         else if (eventType === "usage") callbacks.onUsage(data);
         else if (eventType === "done") callbacks.onDone();
         else if (eventType === "error") callbacks.onError(new Error(data.message));
+        else if (eventType === "sources" && callbacks.onSources) {
+          callbacks.onSources(data.sources || [], Boolean(data.low_relevance));
+        }
       }
     }
   } catch (err) {

@@ -7,16 +7,13 @@
 import asyncio
 import json
 import logging
-import re
 from collections.abc import AsyncGenerator, Callable, Awaitable
-
-# Токенайзер для keyword-реранкинга (буквы/цифры, по аналогии с indexing/service)
-_TOKEN_RE = re.compile(r"[\w\-]+", re.UNICODE)
 
 logger = logging.getLogger(__name__)
 
 from app.modules.agent.runner import AgentRunner
 from app.modules.chat.schemas import ChatRequest, ChatResponse
+from app.modules.indexing.rag_context import build_rag_context
 from app.modules.indexing.service import IndexingService
 from app.modules.context.repository import get_active_branch_id, get_conversation_strategy
 from app.modules.context.service import ContextService
@@ -115,75 +112,6 @@ class ChatService:
             f"{invariants_text}"
         )
 
-    # Порог релевантности: если лучший score ниже — режим "не знаю".
-    # Значение подобрано под эмбеддинги GigaChat — на русских текстах
-    # cosine similarity редко превышает 0.3 даже для очень релевантных чанков.
-    LOW_RELEVANCE_THRESHOLD = 0.15
-
-    def _keyword_rerank(self, query: str, results: list, alpha: float = 0.3):
-        """Реранкинг по ОРИГИНАЛЬНОМУ короткому запросу.
-
-        Отличается от indexing._rerank_keyword тем, что использует
-        короткий query без контекста — это даёт максимальный вес
-        точным совпадениям ("Vue", "MongoDB", "Meilisearch").
-        alpha=0.3 → keyword-overlap важнее, чем cosine similarity.
-        """
-        query_tokens = set(t.lower() for t in _TOKEN_RE.findall(query) if len(t) > 2)
-        if not query_tokens:
-            return results
-
-        reranked = []
-        for r in results:
-            chunk_tokens = set(t.lower() for t in _TOKEN_RE.findall(r.content))
-            overlap = len(query_tokens & chunk_tokens) / len(query_tokens)
-            cosine = r.score
-            final_score = alpha * cosine + (1 - alpha) * overlap
-            reranked.append(
-                r.model_copy(update={
-                    "original_score": round(cosine, 4),
-                    "rerank_score": round(overlap, 4),
-                    "score": round(final_score, 4),
-                })
-            )
-        reranked.sort(key=lambda x: x.score, reverse=True)
-        return reranked
-
-    def _enrich_query_with_context(
-        self, query: str, history: list[dict] | None
-    ) -> str:
-        """Обогащает короткий follow-up-запрос контекстом предыдущих сообщений.
-
-        Эмбеддер плохо ищет по коротким вопросам типа «Vue можно?» —
-        без темы диалога они не находят релевантные чанки. Склеиваем
-        последние 3 пользовательские реплики + последний ответ ассистента
-        в один более «жирный» query-текст. Источники при этом не меняются.
-        """
-        if not history:
-            return query
-
-        # Берём до 3 предыдущих пользовательских сообщений (кроме текущего)
-        prev_user_texts = [
-            m["content"] for m in history
-            if m.get("role") == "user" and m.get("content")
-        ][-4:-1]  # до 3 предыдущих
-
-        last_assistant = next(
-            (m["content"] for m in reversed(history)
-             if m.get("role") == "assistant" and m.get("content")),
-            None,
-        )
-
-        parts: list[str] = []
-        for text in prev_user_texts:
-            parts.append(text[:200])
-        if last_assistant:
-            parts.append(last_assistant[:400])
-        # Текущий вопрос дублируем 2 раза — чтобы он доминировал в эмбеддинге
-        parts.append(query)
-        parts.append(query)
-
-        return " | ".join(parts)
-
     async def _build_rag_context(
         self,
         query: str,
@@ -191,97 +119,21 @@ class ChatService:
         score_threshold: float = 0.1,
         history: list[dict] | None = None,
     ) -> tuple[str | None, list[dict], bool]:
-        """Ищет релевантные чанки и формирует RAG-контекст с переранжированием.
+        """Тонкая обёртка над общим rag_context.build_rag_context.
 
-        Возвращает (system_message_text, sources_list, is_low_relevance)
-        или (None, [], False) если поиск пуст.
+        Общая логика построения RAG-контекста вынесена в indexing/rag_context.py,
+        чтобы playground (LM Studio) мог использовать ту же самую схему.
         """
         if not self._indexing:
             return None, [], False
 
-        search_query = self._enrich_query_with_context(query, history)
-
-        # Двухэтапный поиск:
-        # 1) эмбеддер работает по обогащённому query (context-aware)
-        # 2) keyword-rerank работает по ОРИГИНАЛЬНОМУ короткому query,
-        #    чтобы "Vue"/"MongoDB" не размывались контекстом.
-        search_result = await self._indexing.search(
-            search_query,
-            top_k=30,
-            rerank_mode="none",
-            score_threshold=0.0,
-            top_k_initial=30,
-            top_k_final=30,
+        return await build_rag_context(
+            indexing_service=self._indexing,
+            query=query,
+            history=history,
+            rerank_mode=rerank_mode,
+            score_threshold=score_threshold,
         )
-        # Применяем keyword-реранкинг по исходному короткому запросу
-        if search_result.results and rerank_mode == "keyword":
-            search_result.results = self._keyword_rerank(
-                query, search_result.results
-            )[:8]
-        else:
-            search_result.results = search_result.results[:8]
-        if not search_result.results:
-            return None, [], False
-
-        # Формируем список источников для SSE-события
-        sources = [
-            {
-                "chunk_id": r.chunk_id,
-                "document_id": r.document_id,
-                "source": r.source,
-                "section": r.section,
-                "content": r.content[:200],
-                "score": r.score,
-                "original_score": r.original_score,
-                "rerank_score": r.rerank_score,
-            }
-            for r in search_result.results
-        ]
-
-        # Проверяем релевантность: если лучший score ниже порога — режим "не знаю"
-        max_score = max(r.score for r in search_result.results)
-        is_low_relevance = max_score < self.LOW_RELEVANCE_THRESHOLD
-
-        if is_low_relevance:
-            low_relevance_prompt = (
-                "Контекст из базы знаний имеет очень низкую релевантность к вопросу пользователя. "
-                "Ответь СТРОГО: «К сожалению, в имеющихся документах я не нашёл достаточно "
-                "релевантной информации по вашему вопросу. Пожалуйста, уточните запрос или "
-                "переформулируйте вопрос.» НЕ пытайся отвечать на основе общих знаний."
-            )
-            return low_relevance_prompt, sources, True
-
-        # Формируем текст для system prompt с обязательными цитатами
-        parts = [
-            "ПРАВИЛА ОТВЕТА С ИСТОЧНИКАМИ (ОБЯЗАТЕЛЬНЫ):",
-            "",
-            "1. ВНИМАТЕЛЬНО прочитай все источники ниже перед ответом.",
-            "2. Отвечай ТОЛЬКО на основе предоставленных источников ниже — "
-            "НЕ добавляй информацию из общих знаний, НЕ придумывай, НЕ делай "
-            "предположений «исходя из общей практики».",
-            "3. Если в источниках есть прямой запрет (слова «запрещено», "
-            "«нельзя», «не разрешено» и т.п.) — ответ должен быть категоричным "
-            "«запрещено/нельзя», с дословной цитатой. Запрещено смягчать или "
-            "интерпретировать запреты как «рекомендации».",
-            "4. В ответе ОБЯЗАТЕЛЬНО:",
-            "   - Прямой ответ на вопрос (одно предложение)",
-            "   - Дословная цитата из источника в формате: > «цитата» — [Источник N]",
-            "   - В конце — **Источники:** [Источник N] файл: ..., секция: ...",
-            "5. Если источники НЕ содержат информации для ответа — ответь СТРОГО:",
-            '   «К сожалению, в имеющихся документах я не нашёл информации по вашему вопросу. '
-            'Пожалуйста, уточните запрос или переформулируйте вопрос.»',
-            "   НЕ пытайся отвечать на основе общих знаний.",
-            "6. НЕ вызывай никакие инструменты (tool-calls) — ответ строй только "
-            "из текста источников ниже.",
-            "",
-        ]
-        for i, r in enumerate(search_result.results, 1):
-            section_info = f", секция: {r.section}" if r.section else ""
-            parts.append(f"--- Источник {i} [файл: {r.source}{section_info}] ---")
-            parts.append(r.content)
-            parts.append("")
-
-        return "\n".join(parts), sources, False
 
     # Приоритет категорий рабочей памяти при выводе в промпт
     _WORKING_CATEGORY_ORDER = ["goal", "constraint", "decision", "result", "fact"]
