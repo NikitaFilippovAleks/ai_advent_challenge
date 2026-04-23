@@ -22,6 +22,10 @@ class PlaygroundChatRequest(BaseModel):
     model: str | None = None
     temperature: float | None = 0.7
     system_prompt: str | None = None
+    # Лимит токенов ответа. Если None — используется дефолт провайдера (2048).
+    # Нужен для сравнительного playground: оптимизированный подчат обрезает
+    # длинные ответы, чтобы модель не уходила в рассуждения.
+    max_tokens: int | None = None
 
     # RAG-параметры. Если use_rag=False — поиск не выполняется, поведение
     # playground остаётся прежним (чистая модель без внешнего контекста).

@@ -13,6 +13,8 @@ export interface PlaygroundRequest {
   model?: string;
   temperature?: number;
   system_prompt?: string;
+  // Лимит токенов ответа. Если не указан — бэкенд использует дефолт 2048.
+  max_tokens?: number;
   // RAG-параметры. Если use_rag=false — поиск не выполняется.
   use_rag?: boolean;
   rag_rerank_mode?: string;

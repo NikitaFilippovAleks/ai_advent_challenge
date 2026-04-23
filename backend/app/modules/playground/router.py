@@ -127,6 +127,7 @@ async def chat_stream(
                 messages=messages,
                 model=request.model,
                 temperature=request.temperature,
+                max_tokens=request.max_tokens,
             ):
                 yield _sse_event(event["type"], event["data"])
         except Exception as e:
@@ -153,6 +154,7 @@ async def chat(
             messages=messages,
             model=request.model,
             temperature=request.temperature,
+            max_tokens=request.max_tokens,
         )
         # Возвращаем источники рядом с ответом — удобно для ручной отладки.
         if request.use_rag:

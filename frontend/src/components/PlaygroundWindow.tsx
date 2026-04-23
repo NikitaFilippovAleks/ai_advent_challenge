@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { Message, ModelInfo, RAGSource } from "../types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
+import PlaygroundCompareView from "./PlaygroundCompareView";
 import {
   getPlaygroundModels,
   streamPlayground,
@@ -14,6 +15,10 @@ import {
 // Ключи localStorage — чтобы RAG-настройки сохранялись между сессиями
 const LS_USE_RAG = "playground.useRag";
 const LS_RAG_RERANK = "playground.ragRerank";
+const LS_MODE = "playground.mode";
+
+// Режим: один чат или два подчата бок-о-бок для сравнения baseline vs optimized.
+type PlaygroundMode = "single" | "compare";
 
 function PlaygroundWindow() {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -31,6 +36,10 @@ function PlaygroundWindow() {
   const [ragRerankMode, setRagRerankMode] = useState<string>(
     () => localStorage.getItem(LS_RAG_RERANK) || "keyword",
   );
+  // Режим playground: single (как было) или compare (два подчата)
+  const [mode, setMode] = useState<PlaygroundMode>(
+    () => (localStorage.getItem(LS_MODE) as PlaygroundMode) || "single",
+  );
 
   useEffect(() => {
     localStorage.setItem(LS_USE_RAG, useRag ? "1" : "0");
@@ -38,6 +47,9 @@ function PlaygroundWindow() {
   useEffect(() => {
     localStorage.setItem(LS_RAG_RERANK, ragRerankMode);
   }, [ragRerankMode]);
+  useEffect(() => {
+    localStorage.setItem(LS_MODE, mode);
+  }, [mode]);
 
   const abortRef = useRef<AbortController | null>(null);
   const streamBufferRef = useRef("");
@@ -213,6 +225,23 @@ function PlaygroundWindow() {
     <div className="chat-window">
       <div className="chat-header">
         <div className="chat-controls" style={{ flexWrap: "wrap", gap: "6px" }}>
+          {/* Переключатель режима: single (как было) или compare (2 подчата) */}
+          <div style={{ display: "flex", gap: "2px" }}>
+            <button
+              className={`memory-toggle-btn${mode === "single" ? " active" : ""}`}
+              onClick={() => setMode("single")}
+              title="Один чат"
+            >
+              Single
+            </button>
+            <button
+              className={`memory-toggle-btn${mode === "compare" ? " active" : ""}`}
+              onClick={() => setMode("compare")}
+              title="Сравнить Baseline vs Optimized"
+            >
+              Compare
+            </button>
+          </div>
           <select
             className="chat-model-select"
             value={selectedModel}
@@ -229,34 +258,40 @@ function PlaygroundWindow() {
               ))
             )}
           </select>
-          <div className="chat-temperature">
-            <label>t=</label>
-            <input
-              type="number"
-              className="chat-temperature-input"
-              value={temperature}
-              onChange={(e) => setTemperature(parseFloat(e.target.value) || 0)}
-              min={0}
-              max={2}
-              step={0.1}
-            />
-          </div>
-          <input
-            type="text"
-            placeholder="System prompt (опционально)"
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            style={{
-              flex: "1 1 240px",
-              minWidth: "200px",
-              background: "#1e1e1e",
-              color: "#ccc",
-              border: "1px solid #444",
-              borderRadius: "4px",
-              padding: "4px 8px",
-              fontSize: "12px",
-            }}
-          />
+          {/* Temperature и system prompt показываем только в single — в compare
+              они фиксированы конфигами двух подчатов. */}
+          {mode === "single" && (
+            <>
+              <div className="chat-temperature">
+                <label>t=</label>
+                <input
+                  type="number"
+                  className="chat-temperature-input"
+                  value={temperature}
+                  onChange={(e) => setTemperature(parseFloat(e.target.value) || 0)}
+                  min={0}
+                  max={2}
+                  step={0.1}
+                />
+              </div>
+              <input
+                type="text"
+                placeholder="System prompt (опционально)"
+                value={systemPrompt}
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                style={{
+                  flex: "1 1 240px",
+                  minWidth: "200px",
+                  background: "#1e1e1e",
+                  color: "#ccc",
+                  border: "1px solid #444",
+                  borderRadius: "4px",
+                  padding: "4px 8px",
+                  fontSize: "12px",
+                }}
+              />
+            </>
+          )}
           <button className="memory-toggle-btn" onClick={loadModels} title="Обновить список моделей">
             ↻ Модели
           </button>
@@ -286,18 +321,28 @@ function PlaygroundWindow() {
               <option value="keyword">Keyword</option>
             </select>
           )}
-          <button
-            className="memory-toggle-btn"
-            onClick={handleClear}
-            disabled={messages.length === 0}
-            title="Очистить историю"
-          >
-            Очистить
-          </button>
+          {mode === "single" && (
+            <button
+              className="memory-toggle-btn"
+              onClick={handleClear}
+              disabled={messages.length === 0}
+              title="Очистить историю"
+            >
+              Очистить
+            </button>
+          )}
         </div>
       </div>
 
       <div className="chat-body">
+        {mode === "compare" ? (
+          <PlaygroundCompareView
+            models={models}
+            selectedModel={selectedModel}
+            useRag={useRag}
+            ragRerankMode={ragRerankMode}
+          />
+        ) : (
         <div className="chat-main">
           {connectionError && (
             <div
@@ -339,6 +384,7 @@ function PlaygroundWindow() {
           )}
           <MessageInput onSend={handleSend} disabled={isLoading || models.length === 0} />
         </div>
+        )}
       </div>
     </div>
   );

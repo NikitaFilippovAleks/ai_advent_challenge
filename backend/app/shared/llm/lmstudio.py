@@ -29,17 +29,19 @@ class LMStudioProvider(BaseLLMProvider):
         model: str | None = None,
         temperature: float | None = None,
         functions: list | None = None,
+        max_tokens: int | None = None,
     ) -> dict:
         """Отправляет сообщения и возвращает полный ответ.
 
         functions игнорируется — playground без агентных возможностей.
+        max_tokens=None — используется дефолт 2048.
         """
         client = self._create_client()
         response = await client.chat.completions.create(
             model=model or settings.lmstudio_default_model,
             messages=[{"role": m["role"], "content": m["content"]} for m in messages],
             temperature=temperature,
-            max_tokens=2048,
+            max_tokens=max_tokens if max_tokens is not None else 2048,
         )
 
         message = response.choices[0].message
@@ -61,14 +63,18 @@ class LMStudioProvider(BaseLLMProvider):
         messages: list[dict],
         model: str | None = None,
         temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> AsyncGenerator[dict, None]:
-        """Стримит ответ чанками в едином формате BaseLLMProvider."""
+        """Стримит ответ чанками в едином формате BaseLLMProvider.
+
+        max_tokens=None — используется дефолт 2048.
+        """
         client = self._create_client()
         stream = await client.chat.completions.create(
             model=model or settings.lmstudio_default_model,
             messages=[{"role": m["role"], "content": m["content"]} for m in messages],
             temperature=temperature,
-            max_tokens=2048,
+            max_tokens=max_tokens if max_tokens is not None else 2048,
             stream=True,
             stream_options={"include_usage": True},
         )

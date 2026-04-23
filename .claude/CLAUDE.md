@@ -66,7 +66,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/tasks/` — конечный автомат задач (FSM): классификация сообщений, фазы planning→execution→validation→done, пауза/отмена (state_machine, service, repository, router, schemas)
 - `backend/app/modules/scheduler/` — планировщик задач с периодическим выполнением: APScheduler, сбор данных через MCPManager, генерация сводок через AgentRunner (service, repository, router, schemas, dependencies)
 - `backend/app/modules/indexing/` — индексация документов с эмбеддингами: 2 стратегии chunking (fixed_size, structural), генерация эмбеддингов через GigaChat SDK, семантический поиск по cosine similarity, реранкинг (threshold/keyword/LLM cross-encoder), query rewriting, сравнение стратегий и режимов реранкинга (router, service, repository, schemas, dependencies, strategies/). Модуль `rag_context.py` — общая функция построения RAG-системного промпта с двухэтапным поиском (эмбеддер по обогащённому запросу + keyword-rerank по оригинальному), используется и основным чатом, и playground.
-- `backend/app/modules/playground/` — stateless-чат с локальной моделью через LM Studio (OpenAI-совместимый API). Без БД, памяти, агента и стратегий контекста; поддерживает опциональный RAG (использует `rag_context.build_rag_context` и общий `IndexingService`). SSE-события: `delta`, `usage`, `done`, `error`, `sources`.
+- `backend/app/modules/playground/` — stateless-чат с локальной моделью через LM Studio (OpenAI-совместимый API). Без БД, памяти, агента и стратегий контекста; поддерживает опциональный RAG (использует `rag_context.build_rag_context` и общий `IndexingService`). SSE-события: `delta`, `usage`, `done`, `error`, `sources`. Параметр `max_tokens` пробрасывается в `LMStudioProvider` (дефолт 2048), используется сравнительным режимом для оптимизации под узкий кейс.
 - `backend/mcp_servers/scheduler_server.py` — MCP-сервер планировщика (5 инструментов: create_scheduled_task, list_scheduled_tasks, get_task_results, get_task_summary, cancel_scheduled_task), отдельная БД scheduler.db
 - `backend/mcp_servers/research_server.py` — MCP-сервер для исследования файлов (3 инструмента: search_files, summarize_text, save_to_file), демонстрирует композицию инструментов в пайплайн
 - `backend/mcp_servers/system_server.py` — MCP-сервер системной информации (4 инструмента: current_datetime, disk_usage, list_processes, env_info)
@@ -91,8 +91,10 @@ npm run build     # TypeScript + Vite production сборка
 - `frontend/src/api/chat.ts` — API-клиент: чат, стриминг, стратегии, факты, ветки
 - `frontend/src/api/profiles.ts` — API-клиент: CRUD профилей, привязка профиля к диалогу
 - `frontend/src/api/invariants.ts` — API-клиент: CRUD инвариантов, toggle
-- `frontend/src/components/PlaygroundWindow.tsx` — stateless-раздел для LM Studio: выбор локальной модели, temperature, system prompt, опциональный RAG с реранкингом и панелью источников.
-- `frontend/src/api/playground.ts` — API-клиент LM Studio: список моделей, SSE-стриминг, события `sources`.
+- `frontend/src/components/PlaygroundWindow.tsx` — stateless-раздел для LM Studio: выбор локальной модели, temperature, system prompt, опциональный RAG с реранкингом и панелью источников. Поддерживает два режима: `single` (один чат) и `compare` (два подчата бок-о-бок — Baseline vs Optimized — для оценки эффекта оптимизации параметров и prompt-шаблона).
+- `frontend/src/components/PlaygroundCompareView.tsx` — режим сравнения: две колонки с независимыми стейтами и общим инпутом, параллельный стриминг в обе стороны.
+- `frontend/src/components/playgroundCompareConfig.ts` — захардкоженные конфигурации Baseline (t=0.7, max=2048, без system prompt) и Optimized (t=0.1, max=150, few-shot JSON-классификатор тикетов поддержки).
+- `frontend/src/api/playground.ts` — API-клиент LM Studio: список моделей, SSE-стриминг, события `sources`, параметр `max_tokens`.
 - `frontend/src/types/index.ts` — интерфейсы Message, ChatRequest, ContextStrategy, Fact, Branch, UserProfile и др.
 
 **Взаимодействие:** Фронтенд → Vite proxy (`/api` → `http://backend:8000`) → FastAPI → GigaChat SDK
@@ -266,11 +268,11 @@ GET /api/playground/models
 Response: { models: [{ id, name }] }
 
 POST /api/playground/chat
-Body: { messages: [{ role, content }], model?, temperature?, system_prompt?, use_rag?, rag_rerank_mode?, rag_score_threshold?, rag_top_k? }
+Body: { messages: [{ role, content }], model?, temperature?, max_tokens?, system_prompt?, use_rag?, rag_rerank_mode?, rag_score_threshold?, rag_top_k? }
 Response: { content, usage?, sources?, low_relevance? }
 
 POST /api/playground/chat/stream (SSE)
-Body: { messages, model?, temperature?, system_prompt?, use_rag?, rag_rerank_mode?, rag_score_threshold?, rag_top_k? }
+Body: { messages, model?, temperature?, max_tokens?, system_prompt?, use_rag?, rag_rerank_mode?, rag_score_threshold?, rag_top_k? }
 Events: sources → { sources: [...], low_relevance: bool } (при use_rag), delta → { content }, usage → {...}, done → {}, error → { message }
 ```
 
