@@ -8,8 +8,12 @@ export interface PlaygroundMessage {
   content: string;
 }
 
+export type PlaygroundProvider = "lmstudio" | "ollama";
+
 export interface PlaygroundRequest {
   messages: PlaygroundMessage[];
+  // Какой LLM-провайдер использовать. Если не указано — бэкенд возьмёт lmstudio.
+  provider?: PlaygroundProvider;
   model?: string;
   temperature?: number;
   system_prompt?: string;
@@ -30,12 +34,16 @@ export interface PlaygroundStreamCallbacks {
   onSources?: (sources: RAGSource[], lowRelevance: boolean) => void;
 }
 
-// Получить список моделей из LM Studio.
+// Получить список моделей у выбранного провайдера (lmstudio | ollama).
 // Возвращает пустой массив, если сервер недоступен — UI покажет подсказку.
-export async function getPlaygroundModels(): Promise<ModelInfo[]> {
-  const res = await fetch("/api/playground/models");
+export async function getPlaygroundModels(
+  provider: PlaygroundProvider = "lmstudio",
+): Promise<ModelInfo[]> {
+  const res = await fetch(
+    `/api/playground/models?provider=${encodeURIComponent(provider)}`,
+  );
   if (!res.ok) {
-    // 503 — LM Studio выключен; вернём пусто и дадим UI показать hint
+    // 503 — провайдер выключен/недоступен; вернём пусто и дадим UI показать hint
     if (res.status === 503) return [];
     throw new Error(`Ошибка: ${res.status}`);
   }

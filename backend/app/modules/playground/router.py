@@ -1,6 +1,7 @@
-"""Роутер playground — stateless чат с LM Studio.
+"""Роутер playground — stateless чат с локальным LM Studio или удалённым Ollama.
 
 Без БД, без контекстных стратегий, без памяти, без агента.
+Провайдер выбирается явно: query-параметром в /models и полем provider в теле /chat.
 RAG поддерживается опционально: если use_rag=True, перед вызовом LLM
 выполняется поиск по локальному индексу и найденный контекст
 инжектируется в начало messages как system-сообщение (та же логика,
@@ -18,14 +19,19 @@ from app.modules.indexing.rag_context import build_rag_context
 from app.modules.indexing.service import IndexingService
 from app.modules.playground.dependencies import (
     get_indexing_service_dep,
-    get_lmstudio_provider,
+    get_provider,
 )
 from app.modules.playground.schemas import PlaygroundChatRequest
-from app.shared.llm.lmstudio import LMStudioProvider
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/playground", tags=["playground"])
+
+# Человеко-читаемые названия провайдеров для сообщений об ошибках
+_PROVIDER_LABELS = {
+    "lmstudio": "LM Studio (локальный сервер на порту 1234)",
+    "ollama": "удалённому Ollama-серверу",
+}
 
 
 def _sse_event(event: str, data: dict) -> str:
@@ -81,21 +87,21 @@ async def _apply_rag(
 
 
 @router.get("/models")
-async def list_models(
-    provider: LMStudioProvider = Depends(get_lmstudio_provider),
-):
-    """Список моделей, доступных в локальном LM Studio."""
+async def list_models(provider: str = "lmstudio"):
+    """Список моделей у выбранного провайдера."""
+    llm = get_provider(provider)
     try:
-        models = await provider.list_models()
+        models = await llm.list_models()
         return {"models": models}
     except Exception as e:
-        logger.warning("LM Studio недоступен: %s", e)
+        logger.warning("Провайдер %s недоступен: %s", provider, e)
+        label = _PROVIDER_LABELS.get(provider, provider)
         # Не считаем это 500 — UI должен показать осмысленное сообщение
         raise HTTPException(
             status_code=503,
             detail=(
-                "Не удалось подключиться к LM Studio. "
-                "Убедись, что локальный сервер запущен и модель загружена."
+                f"Не удалось подключиться к {label}. "
+                "Проверь конфигурацию и доступность сервера."
             ),
         )
 
@@ -103,10 +109,10 @@ async def list_models(
 @router.post("/chat/stream")
 async def chat_stream(
     request: PlaygroundChatRequest,
-    provider: LMStudioProvider = Depends(get_lmstudio_provider),
     indexing: IndexingService = Depends(get_indexing_service_dep),
 ):
-    """SSE-стриминг ответа от локальной модели с опциональным RAG."""
+    """SSE-стриминг ответа выбранного провайдера с опциональным RAG."""
+    llm = get_provider(request.provider)
     try:
         messages, sources, is_low_relevance = await _apply_rag(request, indexing)
     except Exception as e:
@@ -123,7 +129,7 @@ async def chat_stream(
                     {"sources": sources, "low_relevance": is_low_relevance},
                 )
 
-            async for event in provider.stream(
+            async for event in llm.stream(
                 messages=messages,
                 model=request.model,
                 temperature=request.temperature,
@@ -131,7 +137,7 @@ async def chat_stream(
             ):
                 yield _sse_event(event["type"], event["data"])
         except Exception as e:
-            logger.exception("Ошибка стриминга LM Studio")
+            logger.exception("Ошибка стриминга провайдера %s", request.provider)
             yield _sse_event("error", {"message": str(e)})
 
     return StreamingResponse(
@@ -144,13 +150,13 @@ async def chat_stream(
 @router.post("/chat")
 async def chat(
     request: PlaygroundChatRequest,
-    provider: LMStudioProvider = Depends(get_lmstudio_provider),
     indexing: IndexingService = Depends(get_indexing_service_dep),
 ):
     """Нестримовый вариант — на случай отладки."""
+    llm = get_provider(request.provider)
     try:
         messages, sources, is_low_relevance = await _apply_rag(request, indexing)
-        result = await provider.chat(
+        result = await llm.chat(
             messages=messages,
             model=request.model,
             temperature=request.temperature,

@@ -10,15 +10,29 @@ import {
   getPlaygroundModels,
   streamPlayground,
   PlaygroundMessage,
+  PlaygroundProvider,
 } from "../api/playground";
 
 // Ключи localStorage — чтобы RAG-настройки сохранялись между сессиями
 const LS_USE_RAG = "playground.useRag";
 const LS_RAG_RERANK = "playground.ragRerank";
 const LS_MODE = "playground.mode";
+const LS_PROVIDER = "playground.provider";
 
 // Режим: один чат или два подчата бок-о-бок для сравнения baseline vs optimized.
 type PlaygroundMode = "single" | "compare";
+
+// Лейблы для селектора провайдера и hint-сообщений
+const PROVIDER_LABELS: Record<PlaygroundProvider, string> = {
+  lmstudio: "LM Studio (локально)",
+  ollama: "Ollama (VPS)",
+};
+const PROVIDER_HINTS: Record<PlaygroundProvider, string> = {
+  lmstudio:
+    "LM Studio не отвечает. Запусти локальный сервер (port 1234) и загрузи модель.",
+  ollama:
+    "Ollama-сервер не отвечает. Проверь OLLAMA_BASE_URL и Basic-auth в .env.",
+};
 
 function PlaygroundWindow() {
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -40,6 +54,11 @@ function PlaygroundWindow() {
   const [mode, setMode] = useState<PlaygroundMode>(
     () => (localStorage.getItem(LS_MODE) as PlaygroundMode) || "single",
   );
+  // Провайдер LLM: локальный LM Studio или удалённый Ollama
+  const [provider, setProvider] = useState<PlaygroundProvider>(() => {
+    const saved = localStorage.getItem(LS_PROVIDER);
+    return saved === "ollama" ? "ollama" : "lmstudio";
+  });
 
   useEffect(() => {
     localStorage.setItem(LS_USE_RAG, useRag ? "1" : "0");
@@ -50,31 +69,34 @@ function PlaygroundWindow() {
   useEffect(() => {
     localStorage.setItem(LS_MODE, mode);
   }, [mode]);
+  useEffect(() => {
+    localStorage.setItem(LS_PROVIDER, provider);
+  }, [provider]);
 
   const abortRef = useRef<AbortController | null>(null);
   const streamBufferRef = useRef("");
   const rafIdRef = useRef<number | null>(null);
   const startTimeRef = useRef(0);
 
-  // Загружаем модели при монтировании
+  // Загружаем модели при монтировании и при смене провайдера
   useEffect(() => {
     loadModels();
     return () => {
       if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [provider]);
 
   const loadModels = async () => {
     setConnectionError(null);
+    // При смене провайдера сбрасываем выбранную модель — она вряд ли есть у нового
+    setSelectedModel("");
     try {
-      const list = await getPlaygroundModels();
+      const list = await getPlaygroundModels(provider);
       setModels(list);
       if (list.length === 0) {
-        setConnectionError(
-          "LM Studio не отвечает. Запусти локальный сервер (port 1234) и загрузи модель.",
-        );
-      } else if (!selectedModel) {
+        setConnectionError(PROVIDER_HINTS[provider]);
+      } else {
         setSelectedModel(list[0].id);
       }
     } catch (e) {
@@ -139,6 +161,7 @@ function PlaygroundWindow() {
     await streamPlayground(
       {
         messages: wireMessages,
+        provider,
         model: selectedModel || undefined,
         temperature,
         system_prompt: systemPrompt.trim() || undefined,
@@ -242,6 +265,16 @@ function PlaygroundWindow() {
               Compare
             </button>
           </div>
+          {/* Селектор провайдера: локальный LM Studio или удалённый Ollama */}
+          <select
+            className="chat-model-select"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as PlaygroundProvider)}
+            title="LLM-провайдер"
+          >
+            <option value="lmstudio">{PROVIDER_LABELS.lmstudio}</option>
+            <option value="ollama">{PROVIDER_LABELS.ollama}</option>
+          </select>
           <select
             className="chat-model-select"
             value={selectedModel}
@@ -339,6 +372,7 @@ function PlaygroundWindow() {
           <PlaygroundCompareView
             models={models}
             selectedModel={selectedModel}
+            provider={provider}
             useRag={useRag}
             ragRerankMode={ragRerankMode}
           />
@@ -368,10 +402,10 @@ function PlaygroundWindow() {
                 textAlign: "center",
               }}
             >
-              Playground для тестирования локальных моделей через LM Studio.
+              Playground для тестирования моделей через LM Studio (локально) или
+              Ollama (удалённый сервер).
               <br />
-              Stateless-чат без памяти и агента. Опционально можно включить RAG
-              (retrieval и генерация — полностью локально).
+              Stateless-чат без памяти и агента. Опционально можно включить RAG.
             </div>
           )}
           <MessageList messages={messages} isLoading={isLoading} onStop={handleStop} />

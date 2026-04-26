@@ -1,8 +1,12 @@
 """Pydantic-схемы для playground-эндпоинтов."""
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 from app.modules.indexing.schemas import RerankMode
+
+PlaygroundProvider = Literal["lmstudio", "ollama"]
 
 
 class PlaygroundMessage(BaseModel):
@@ -19,6 +23,8 @@ class PlaygroundChatRequest(BaseModel):
     """
 
     messages: list[PlaygroundMessage]
+    # Провайдер: локальный LM Studio или удалённый Ollama. Дефолт сохраняет старое поведение.
+    provider: PlaygroundProvider = "lmstudio"
     model: str | None = None
     temperature: float | None = 0.7
     system_prompt: str | None = None

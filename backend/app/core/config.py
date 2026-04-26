@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     lmstudio_api_key: str = "lm-studio"  # LM Studio игнорирует ключ, но openai SDK требует непустую строку
     lmstudio_default_model: str = "llama-3.2-1b-instruct"
 
+    # Ollama (удалённый сервер с авторизацией Basic Auth)
+    # Используется как альтернативный провайдер playground.
+    ollama_base_url: str = "https://llm.nikfil.ru"
+    ollama_username: str = ""
+    ollama_password: str = ""
+    ollama_default_model: str = "llama3.2:1b"
+
     # Управление контекстом
     context_recent_count: int = 10
     context_summary_block_size: int = 10

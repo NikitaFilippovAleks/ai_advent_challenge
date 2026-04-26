@@ -8,7 +8,11 @@ import { useMemo, useRef, useState } from "react";
 import { Message, ModelInfo } from "../types";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
-import { streamPlayground, PlaygroundMessage } from "../api/playground";
+import {
+  streamPlayground,
+  PlaygroundMessage,
+  PlaygroundProvider,
+} from "../api/playground";
 import {
   BASELINE_CONFIG,
   OPTIMIZED_CONFIG,
@@ -18,6 +22,7 @@ import {
 interface Props {
   models: ModelInfo[];
   selectedModel: string;
+  provider: PlaygroundProvider;
   useRag: boolean;
   ragRerankMode: string;
 }
@@ -43,6 +48,7 @@ function emptySideRefs(): SideRefs {
 function PlaygroundCompareView({
   models,
   selectedModel,
+  provider,
   useRag,
   ragRerankMode,
 }: Props) {
@@ -104,6 +110,7 @@ function PlaygroundCompareView({
       refs: baselineRefs.current,
       setState: setBaseline,
       selectedModel,
+      provider,
       useRag,
       ragRerankMode,
     });
@@ -113,6 +120,7 @@ function PlaygroundCompareView({
       refs: optimizedRefs.current,
       setState: setOptimized,
       selectedModel,
+      provider,
       useRag,
       ragRerankMode,
     });
@@ -245,11 +253,20 @@ function runSide(params: {
   refs: SideRefs;
   setState: React.Dispatch<React.SetStateAction<SideState>>;
   selectedModel: string;
+  provider: PlaygroundProvider;
   useRag: boolean;
   ragRerankMode: string;
 }) {
-  const { config, history, refs, setState, selectedModel, useRag, ragRerankMode } =
-    params;
+  const {
+    config,
+    history,
+    refs,
+    setState,
+    selectedModel,
+    provider,
+    useRag,
+    ragRerankMode,
+  } = params;
 
   refs.streamBuffer = "";
   refs.startTime = Date.now();
@@ -278,6 +295,7 @@ function runSide(params: {
   return streamPlayground(
     {
       messages: wireMessages,
+      provider,
       model: selectedModel || undefined,
       temperature: config.temperature,
       max_tokens: config.maxTokens,
