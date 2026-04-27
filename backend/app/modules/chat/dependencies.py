@@ -6,7 +6,7 @@
 
 from functools import lru_cache
 
-from app.modules.agent.dependencies import get_agent_runner
+from app.modules.agent.dependencies import get_agent_runner, get_mcp_manager
 from app.modules.chat.service import ChatService
 from app.modules.indexing.dependencies import get_indexing_service
 from app.modules.context.service import ContextService
@@ -24,6 +24,7 @@ def get_chat_service() -> ChatService:
     task_service = TaskService(llm=llm)
     agent_runner = get_agent_runner()
     indexing_service = get_indexing_service()
+    mcp_manager = get_mcp_manager()
     return ChatService(
         llm=llm,
         context_service=context_service,
@@ -33,4 +34,5 @@ def get_chat_service() -> ChatService:
         task_service=task_service,
         agent_runner=agent_runner,
         indexing_service=indexing_service,
+        mcp_manager=mcp_manager,
     )

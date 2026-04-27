@@ -215,6 +215,9 @@ class IndexedDocument(Base):
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     chunking_strategy: Mapped[str] = mapped_column(String, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Логическая коллекция: позволяет изолировать документы по разным
+    # назначениям (default — общий индекс, project_docs — README+docs/ для /help).
+    collection: Mapped[str] = mapped_column(String, default="default")
     created_at: Mapped[str] = mapped_column(String)
 
     chunks: Mapped[list["DocumentChunk"]] = relationship(

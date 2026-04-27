@@ -154,12 +154,31 @@ class IndexingService:
         return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     async def index_documents(
-        self, paths: list[str], strategy_name: str = "fixed_size"
+        self,
+        paths: list[str],
+        strategy_name: str = "fixed_size",
+        collection: str = "default",
+        replace_collection: bool = False,
     ) -> list[IndexResponse]:
-        """Индексирует документы: читает, чанкит, генерирует эмбеддинги, сохраняет."""
+        """Индексирует документы: читает, чанкит, генерирует эмбеддинги, сохраняет.
+
+        Параметры:
+            collection: логическая коллекция (для изоляции индексов).
+            replace_collection: если True — удаляет все документы коллекции
+                перед индексацией (для полной переиндексации project_docs).
+        """
         strategy = self._strategies.get(strategy_name)
         if strategy is None:
             raise ValueError(f"Неизвестная стратегия: {strategy_name}")
+
+        if replace_collection:
+            removed = await repository.delete_documents_by_collection(collection)
+            if removed:
+                logger.info(
+                    "Очищена коллекция '%s': удалено %d документов",
+                    collection,
+                    removed,
+                )
 
         results: list[IndexResponse] = []
 
@@ -170,9 +189,9 @@ class IndexingService:
 
             content_hash = self._content_hash(content)
 
-            # Пропускаем если уже проиндексировано с тем же хешем и стратегией
+            # Пропускаем если уже проиндексировано с тем же хешем, стратегией и коллекцией
             existing = await repository.find_document_by_hash(
-                content_hash, strategy_name
+                content_hash, strategy_name, collection
             )
             if existing:
                 logger.info("Пропуск (уже проиндексирован): %s", path)
@@ -206,6 +225,7 @@ class IndexingService:
                 content_hash=content_hash,
                 strategy=strategy_name,
                 chunk_count=len(chunks),
+                collection=collection,
             )
 
             # Сохраняем чанки с эмбеддингами
@@ -387,6 +407,7 @@ class IndexingService:
         top_k_initial: int = 20,
         top_k_final: int = 5,
         rewrite_query: bool = False,
+        collection: str | None = None,
     ) -> SearchResponse:
         """Семантический поиск по индексу с опциональным реранкингом.
 
@@ -409,8 +430,25 @@ class IndexingService:
         query_embedding = (await self._generate_embeddings([search_query]))[0]
         query_vec = np.array(query_embedding, dtype=np.float32)
 
+        # Если указана коллекция — фильтруем document_ids по ней
+        effective_doc_ids = document_ids
+        if collection is not None:
+            collection_doc_ids = await repository.get_document_ids_by_collection(collection)
+            if document_ids is None:
+                effective_doc_ids = collection_doc_ids
+            else:
+                effective_doc_ids = list(set(document_ids) & set(collection_doc_ids))
+            if not effective_doc_ids:
+                # Коллекция пуста — возвращаем пустой результат
+                return SearchResponse(
+                    results=[],
+                    query=query,
+                    rewritten_query=rewritten_query,
+                    rerank_mode=rerank_mode,
+                )
+
         # Загружаем все чанки
-        chunks = await repository.get_all_chunks(document_ids)
+        chunks = await repository.get_all_chunks(effective_doc_ids)
         if not chunks:
             return SearchResponse(
                 results=[],

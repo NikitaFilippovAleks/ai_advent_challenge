@@ -111,6 +111,31 @@ def _format_sources(results: list[SearchResult]) -> list[dict]:
     ]
 
 
+def _format_help_prompt(results: list[SearchResult]) -> str:
+    """Мягкий RAG-промпт для help_mode: документация как подсказка, не как клетка.
+
+    В отличие от _format_system_prompt не запрещает использовать общие
+    знания и не запрещает tool-calls — для /help ассистенту нужно
+    свободно комбинировать документацию (RAG) и live-инструменты (git_*).
+    """
+    parts = [
+        "ДОКУМЕНТАЦИЯ ПРОЕКТА (фрагменты из README и docs/):",
+        "",
+        "Используй эти фрагменты как основной источник правды о структуре, "
+        "архитектуре и стеке проекта. Ссылайся на конкретные файлы по именам "
+        "(например, [README.md](README.md) или [docs/...](docs/...)). "
+        "Если информации в документации недостаточно — можешь дополнить общими "
+        "сведениями, явно отметив, что это твоё дополнение.",
+        "",
+    ]
+    for i, r in enumerate(results, 1):
+        section_info = f", секция: {r.section}" if r.section else ""
+        parts.append(f"--- Источник {i} [файл: {r.source}{section_info}] ---")
+        parts.append(r.content)
+        parts.append("")
+    return "\n".join(parts)
+
+
 def _format_system_prompt(results: list[SearchResult]) -> str:
     """Собирает system-текст с инструкциями и цитатами источников."""
     parts = [
@@ -152,6 +177,8 @@ async def build_rag_context(
     rerank_mode: str | None = "keyword",
     score_threshold: float | None = None,  # не используется, оставлено для совместимости
     top_k_final: int = 8,
+    collection: str | None = None,
+    strict: bool = True,
 ) -> tuple[str | None, list[dict], bool]:
     """Ищет релевантные чанки и формирует RAG-контекст с переранжированием.
 
@@ -173,6 +200,7 @@ async def build_rag_context(
         score_threshold=0.0,
         top_k_initial=30,
         top_k_final=30,
+        collection=collection,
     )
 
     if search_result.results and rerank_mode == "keyword":
@@ -187,6 +215,12 @@ async def build_rag_context(
 
     max_score = max(r.score for r in search_result.results)
     is_low_relevance = max_score < LOW_RELEVANCE_THRESHOLD
+
+    # Мягкий режим (strict=False, для help_mode): не блокируем ответ при
+    # низкой релевантности — даём документацию как подсказку, разрешаем
+    # дополнять общими знаниями.
+    if not strict:
+        return _format_help_prompt(search_result.results), sources, is_low_relevance
 
     if is_low_relevance:
         low_relevance_prompt = (

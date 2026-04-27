@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
 
+from app.modules.agent.mcp_manager import MCPManager
 from app.modules.agent.runner import AgentRunner
 from app.modules.chat.schemas import ChatRequest, ChatResponse
 from app.modules.indexing.rag_context import build_rag_context
@@ -51,6 +52,7 @@ class ChatService:
         task_service=None,
         agent_runner: AgentRunner | None = None,
         indexing_service: IndexingService | None = None,
+        mcp_manager: MCPManager | None = None,
     ) -> None:
         self._llm = llm
         self._context = context_service
@@ -60,6 +62,7 @@ class ChatService:
         self._task_service = task_service
         self._agent = agent_runner
         self._indexing = indexing_service
+        self._mcp = mcp_manager
 
     async def _get_system_prompt(self, conversation_id: str) -> str | None:
         """Получает system prompt из профиля диалога (явного или дефолтного)."""
@@ -118,6 +121,8 @@ class ChatService:
         rerank_mode: str = "keyword",
         score_threshold: float = 0.1,
         history: list[dict] | None = None,
+        collection: str | None = None,
+        strict: bool = True,
     ) -> tuple[str | None, list[dict], bool]:
         """Тонкая обёртка над общим rag_context.build_rag_context.
 
@@ -133,7 +138,62 @@ class ChatService:
             history=history,
             rerank_mode=rerank_mode,
             score_threshold=score_threshold,
+            collection=collection,
+            strict=strict,
         )
+
+    # Дефолтный пресет system prompt для команды /help.
+    # Используется, если фронт не прислал свой system_prompt_addon.
+    _HELP_SYSTEM_PROMPT_ADDON = (
+        "Ты — гид по проекту GigaChat (режим /help). Отвечай на вопросы о "
+        "структуре, архитектуре, стеке, командах сборки/запуска, API, модулях.\n"
+        "\n"
+        "Правила режима /help:\n"
+        "1. Опирайся в первую очередь на ДОКУМЕНТАЦИЮ ПРОЕКТА из RAG-контекста "
+        "(README.md и файлы из docs/). Ссылайся на конкретные файлы по именам.\n"
+        "2. НЕ вызывай инструменты search_files, summarize_text, save_to_file, "
+        "list_processes, current_datetime, disk_usage, env_info — документация "
+        "уже находится в RAG-контексте, дублирующий поиск по файлам не нужен.\n"
+        "3. Можешь использовать git-инструменты (git_log, git_diff, git_status), "
+        "если пользователь явно спрашивает про коммиты, изменения или текущее "
+        "состояние репозитория. Текущая git-ветка инжектирована ниже — её "
+        "вызывать инструментом не нужно.\n"
+        "4. Если документация не покрывает вопрос полностью — ответь по тому, "
+        "что есть, и явно отметь, чего не хватает в документации."
+    )
+
+    async def _build_help_addon(self, user_addon: str | None) -> str | None:
+        """Строит system prompt addon для /help.
+
+        Подтягивает текущую git-ветку через MCP (best-effort) и формирует
+        текстовый блок с инструкциями + git-контекстом. При недоступности
+        git-сервера — возвращает аддон без git-контекста (graceful).
+        """
+        base = user_addon.strip() if user_addon else self._HELP_SYSTEM_PROMPT_ADDON
+        git_text = await self._fetch_git_branches_text()
+        if git_text:
+            return f"{base}\n\nТекущий git-контекст (вывод `git branch -a`):\n{git_text}"
+        return base
+
+    async def _fetch_git_branches_text(self) -> str | None:
+        """Возвращает текст вывода git_branches через MCP или None при сбое."""
+        if not self._mcp:
+            return None
+        try:
+            result = await self._mcp.call_tool(
+                "git_branches", {"repo_path": "/repo"}
+            )
+        except Exception as e:
+            logger.warning("Не удалось получить git-ветки через MCP: %s", e)
+            return None
+        if not result:
+            return None
+        # MCPManager возвращает строку. При недоступности инструмента
+        # вернётся текст "Инструмент 'git_branches' недоступен".
+        if "недоступен" in result.lower() or result.startswith("Ошибка"):
+            logger.info("git_branches недоступен: %s", result)
+            return None
+        return result
 
     # Приоритет категорий рабочей памяти при выводе в промпт
     _WORKING_CATEGORY_ORDER = ["goal", "constraint", "decision", "result", "fact"]
@@ -280,12 +340,24 @@ class ChatService:
                     rerank_mode=request.rag_rerank_mode,
                     score_threshold=request.rag_score_threshold,
                     history=messages,
+                    collection=request.rag_collection,
+                    # /help — мягкий режим: документация как подсказка,
+                    # модель может дополнить общими знаниями и использовать tools.
+                    strict=not request.help_mode,
                 )
                 if rag_text:
                     messages.insert(
                         len([m for m in messages if m["role"] == "system"]),
                         {"role": "system", "content": rag_text},
                     )
+            # /help — добавляем гайд-аддон и текущую git-ветку.
+            # Аддон ставим ПОСЛЕ всех остальных system-блоков, чтобы он
+            # был ближе к запросу пользователя и не размывался RAG'ом.
+            if request.help_mode:
+                help_addon = await self._build_help_addon(request.system_prompt_addon)
+                if help_addon:
+                    sys_count = len([m for m in messages if m["role"] == "system"])
+                    messages.insert(sys_count, {"role": "system", "content": help_addon})
             # Память задачи — goal/constraints/decisions + недавние наблюдения.
             # Инжектим всегда, независимо от стратегии, чтобы в длинных
             # диалогах ассистент не терял цель и зафиксированные ограничения.
@@ -309,8 +381,10 @@ class ChatService:
 
         # При включённом RAG — обходим AgentRunner, чтобы LLM не дёргала
         # MCP-инструменты (search_files и т.п.) вместо ответа из переданного
-        # RAG-контекста. Чистый RAG-режим: только документы из индекса.
-        use_agent = self._agent and not request.use_rag
+        # RAG-контекста. Исключение — help_mode: для /help нужны и RAG, и
+        # tools одновременно (RAG как статический контекст, tools — для
+        # follow-up вопросов вроде «покажи последние коммиты»).
+        use_agent = self._agent and (not request.use_rag or request.help_mode)
         if use_agent:
             result = await self._agent.run(
                 messages, model=request.model, temperature=request.temperature
@@ -413,11 +487,23 @@ class ChatService:
                         rerank_mode=request.rag_rerank_mode,
                         score_threshold=request.rag_score_threshold,
                         history=messages,
+                        collection=request.rag_collection,
+                        # См. комментарий выше: help_mode → мягкий режим.
+                        strict=not request.help_mode,
                     )
                     if rag_text:
                         messages.insert(
                             len([m for m in messages if m["role"] == "system"]),
                             {"role": "system", "content": rag_text},
+                        )
+                # /help — добавляем гайд-аддон и текущую git-ветку
+                # как статический контекст. См. _build_help_addon.
+                if request.help_mode:
+                    help_addon = await self._build_help_addon(request.system_prompt_addon)
+                    if help_addon:
+                        sys_count = len([m for m in messages if m["role"] == "system"])
+                        messages.insert(
+                            sys_count, {"role": "system", "content": help_addon}
                         )
                 # Память задачи — goal/constraints/decisions + недавние наблюдения.
                 # Инжектим всегда, чтобы ассистент не терял цель в длинных диалогах.
@@ -452,8 +538,9 @@ class ChatService:
                 yield f"event: sources\ndata: {sources_data}\n\n"
 
             # При включённом RAG — обходим AgentRunner, чтобы LLM не дёргала
-            # MCP-инструменты вместо ответа из RAG-контекста.
-            use_agent_stream = self._agent and not request.use_rag
+            # MCP-инструменты вместо ответа из RAG-контекста. Исключение —
+            # help_mode: для /help RAG и tools работают вместе.
+            use_agent_stream = self._agent and (not request.use_rag or request.help_mode)
             stream_source = (
                 self._agent.run_stream(messages, model=request.model, temperature=request.temperature)
                 if use_agent_stream

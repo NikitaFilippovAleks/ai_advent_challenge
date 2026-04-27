@@ -20,6 +20,13 @@ class ChatRequest(BaseModel):
     use_rag: bool = False
     rag_rerank_mode: str = "keyword"  # режим переранжирования RAG-результатов
     rag_score_threshold: float = 0.1  # порог отсечения нерелевантных результатов
+    # /help-режим: использовать RAG по project_docs + инжектить git-ветку
+    # в system prompt, не отключая MCP-tools (агент + RAG работают вместе).
+    help_mode: bool = False
+    # Логическая коллекция RAG (project_docs для /help, default для остального).
+    rag_collection: str | None = None
+    # Дополнение к system prompt от пресета слеш-команды на фронте.
+    system_prompt_addon: str | None = None
 
 
 class UsageInfo(BaseModel):

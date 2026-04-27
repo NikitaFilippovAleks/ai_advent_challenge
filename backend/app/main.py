@@ -25,6 +25,8 @@ from app.modules.memory.router import router as memory_router
 from app.modules.profiles.router import router as profiles_router
 from app.modules.scheduler.dependencies import get_scheduler_service
 from app.modules.scheduler.router import router as scheduler_router
+from app.modules.indexing.dependencies import get_indexing_service
+from app.modules.indexing.project_docs_indexer import index_project_docs
 from app.modules.indexing.router import router as indexing_router
 from app.modules.playground.router import router as playground_router
 from app.modules.tasks.router import router as tasks_router
@@ -39,6 +41,13 @@ async def lifespan(app: FastAPI):
     # Подключаем MCP-серверы с enabled=true
     mcp = get_mcp_manager()
     await mcp.auto_connect()
+    # Автоиндексация README + docs/ для команды /help.
+    # Отдельной задачей в фоне не уносим: индексер сам проверяет lock-сигнатуру
+    # и при отсутствии изменений завершается мгновенно.
+    try:
+        await index_project_docs(get_indexing_service())
+    except Exception as e:
+        logger.error("Автоиндексация project_docs упала: %s", e, exc_info=True)
     # Запускаем планировщик задач
     scheduler_svc = get_scheduler_service()
     await scheduler_svc.start(mcp, get_agent_runner())

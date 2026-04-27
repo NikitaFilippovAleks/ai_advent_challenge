@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { Message, ModelInfo, ContextStrategy, TaskInfo, RAGSource } from "../types";
 import type { ToolCallEvent, ToolResultEvent } from "../types";
 import { streamMessage, getMessages, getStrategy, setStrategy } from "../api/chat";
+import { parseSlashCommand } from "../lib/slashCommands";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import FactsPanel from "./FactsPanel";
@@ -126,10 +127,19 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
     const isAuto = autoSendRef.current;
     autoSendRef.current = false;
 
+    // Парсим слеш-команды (/help и т.п.). Если это команда — подменяем
+    // текст сообщения тем, что реально пойдёт в LLM, и набираем overrides
+    // для ChatRequest (use_rag, help_mode, rag_collection ...).
+    const slash = parseSlashCommand(text);
+    const effectiveText = slash ? slash.messageText : text;
+    // В UI показываем то, что напечатал пользователь (с префиксом /help) —
+    // это удобнее: пользователь видит свою команду в истории.
+    const displayText = text;
+
     // Автоматические сообщения не показываем в UI
     const updatedMessages = isAuto
       ? messages
-      : [...messages, { role: "user" as const, content: text }];
+      : [...messages, { role: "user" as const, content: displayText }];
 
     // Сбрасываем буфер стриминга
     streamBufferRef.current = "";
@@ -142,21 +152,35 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
     abortRef.current = controller;
 
     // При наличии диалога отправляем только последнее сообщение —
-    // бэкенд возьмёт историю из БД и подставит суммаризации
+    // бэкенд возьмёт историю из БД и подставит суммаризации.
+    // Содержимое — effectiveText (без префикса слеш-команды).
+    // Без conversationId — отправляем всю локальную историю; в последнем
+    // user-сообщении подменяем displayText на effectiveText.
     const requestMessages = conversationId
-      ? [{ role: "user" as const, content: text }]
-      : updatedMessages.map((m) => ({ role: m.role, content: m.content }));
+      ? [{ role: "user" as const, content: effectiveText }]
+      : updatedMessages.map((m, i, arr) =>
+          !isAuto && i === arr.length - 1
+            ? { role: "user" as const, content: effectiveText }
+            : { role: m.role, content: m.content },
+        );
+
+    // Базовые параметры RAG-режима из тогглов в шапке.
+    const baseRequest = {
+      messages: requestMessages,
+      model: selectedModel,
+      temperature,
+      conversation_id: conversationId || undefined,
+      use_rag: useRag || undefined,
+      rag_rerank_mode: useRag ? ragRerankMode : undefined,
+      rag_score_threshold: useRag ? ragScoreThreshold : undefined,
+    };
+    // Слеш-команда имеет приоритет: её overrides перекрывают базовые
+    // тогглы (например, /help принудительно включает RAG по project_docs,
+    // независимо от состояния тоггла RAG в шапке).
+    const finalRequest = slash ? { ...baseRequest, ...slash.overrides } : baseRequest;
 
     await streamMessage(
-      {
-        messages: requestMessages,
-        model: selectedModel,
-        temperature,
-        conversation_id: conversationId || undefined,
-        use_rag: useRag || undefined,
-        rag_rerank_mode: useRag ? ragRerankMode : undefined,
-        rag_score_threshold: useRag ? ragScoreThreshold : undefined,
-      },
+      finalRequest,
       {
         // Текст копится в буфер, стейт обновляется через rAF (макс 60 раз/сек)
         onDelta: (content) => {

@@ -21,6 +21,7 @@ async def save_document(
     content_hash: str,
     strategy: str,
     chunk_count: int,
+    collection: str = "default",
 ) -> dict:
     """Создаёт запись проиндексированного документа."""
     now = _now_iso()
@@ -31,6 +32,7 @@ async def save_document(
         content_hash=content_hash,
         chunking_strategy=strategy,
         chunk_count=chunk_count,
+        collection=collection,
         created_at=now,
     )
     async with async_session() as session:
@@ -43,6 +45,7 @@ async def save_document(
         "content_hash": doc.content_hash,
         "chunking_strategy": doc.chunking_strategy,
         "chunk_count": doc.chunk_count,
+        "collection": doc.collection,
         "created_at": doc.created_at,
     }
 
@@ -81,6 +84,7 @@ async def get_all_documents() -> list[dict]:
             "title": r.title,
             "chunking_strategy": r.chunking_strategy,
             "chunk_count": r.chunk_count,
+            "collection": r.collection,
             "created_at": r.created_at,
         }
         for r in rows
@@ -100,6 +104,7 @@ async def get_document(doc_id: str) -> dict | None:
         "content_hash": doc.content_hash,
         "chunking_strategy": doc.chunking_strategy,
         "chunk_count": doc.chunk_count,
+        "collection": doc.collection,
         "created_at": doc.created_at,
     }
 
@@ -115,13 +120,16 @@ async def delete_document(doc_id: str) -> bool:
     return True
 
 
-async def find_document_by_hash(content_hash: str, strategy: str) -> dict | None:
-    """Ищет документ по хешу содержимого и стратегии (для пропуска переиндексации)."""
+async def find_document_by_hash(
+    content_hash: str, strategy: str, collection: str = "default"
+) -> dict | None:
+    """Ищет документ по хешу содержимого, стратегии и коллекции (для пропуска переиндексации)."""
     async with async_session() as session:
         result = await session.execute(
             select(IndexedDocument).where(
                 IndexedDocument.content_hash == content_hash,
                 IndexedDocument.chunking_strategy == strategy,
+                IndexedDocument.collection == collection,
             )
         )
         doc = result.scalar_one_or_none()
@@ -132,7 +140,35 @@ async def find_document_by_hash(content_hash: str, strategy: str) -> dict | None
         "filename": doc.filename,
         "chunk_count": doc.chunk_count,
         "chunking_strategy": doc.chunking_strategy,
+        "collection": doc.collection,
     }
+
+
+async def get_document_ids_by_collection(collection: str) -> list[str]:
+    """Возвращает ID всех документов указанной коллекции."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(IndexedDocument.id).where(
+                IndexedDocument.collection == collection
+            )
+        )
+        return [row[0] for row in result.all()]
+
+
+async def delete_documents_by_collection(collection: str) -> int:
+    """Удаляет все документы указанной коллекции (с каскадом по чанкам)."""
+    async with async_session() as session:
+        result = await session.execute(
+            select(IndexedDocument).where(
+                IndexedDocument.collection == collection
+            )
+        )
+        docs = result.scalars().all()
+        count = len(docs)
+        for doc in docs:
+            await session.delete(doc)
+        await session.commit()
+    return count
 
 
 async def get_all_chunks(document_ids: list[str] | None = None) -> list[dict]:
