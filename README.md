@@ -44,7 +44,7 @@
 - В Settings → Secrets and variables → Actions добавить secret `GIGACHAT_CREDENTIALS`.
 - Workflow автоматически скипается на PR из форков (GitHub не пробрасывает secrets форкам).
 
-**Локальный запуск (для отладки):**
+**Локальный запуск:**
 
 ```bash
 docker compose run --rm backend python -m app.modules.code_review.cli \
