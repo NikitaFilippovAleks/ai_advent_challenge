@@ -10,6 +10,9 @@ jobs:
     # такие запуски — иначе job упадёт на пустых credentials.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    # Environment `ci` хранит секрет GIGACHAT_CREDENTIALS.
+    # Без этой строки Environment-секреты в job не пробрасываются.
+    environment: ci
     permissions:
       contents: read
       pull-requests: write
@@ -20,6 +23,17 @@ jobs:
         with:
           fetch-depth: 0  # нужна полная история, чтобы git diff base...head работал
           ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify GIGACHAT_CREDENTIALS secret is set
+        env:
+          GIGACHAT_CREDENTIALS: ${{ secrets.GIGACHAT_CREDENTIALS }}
+        run: |
+          if [ -z "$GIGACHAT_CREDENTIALS" ]; then
+            echo "::error::Secret GIGACHAT_CREDENTIALS не задан или пуст." \
+                 "Settings → Secrets and variables → Actions → Repository secrets."
+            exit 1
+          fi
+          echo "Secret задан, длина: ${#GIGACHAT_CREDENTIALS} символов"
 
       - name: Create stub .env
         # docker-compose.yml содержит `env_file: .env`, но в .gitignore
