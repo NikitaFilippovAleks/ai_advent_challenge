@@ -28,10 +28,15 @@ class GitDiffError(RuntimeError):
 
 
 def _run_git(args: list[str], cwd: str) -> str:
-    """Выполняет git-команду и возвращает stdout. При сбое — GitDiffError."""
+    """Выполняет git-команду и возвращает stdout. При сбое — GitDiffError.
+
+    Флаг `-c safe.directory=*` нужен для запуска внутри контейнера/CI, где
+    смонтированный репозиторий принадлежит хост-юзеру (uid != root), и
+    git 2.35+ иначе отказывается признавать его (`dubious ownership`).
+    """
     try:
         result = subprocess.run(
-            ["git", *args],
+            ["git", "-c", "safe.directory=*", *args],
             cwd=cwd,
             capture_output=True,
             text=True,
