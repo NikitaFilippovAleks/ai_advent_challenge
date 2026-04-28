@@ -21,6 +21,12 @@ jobs:
           fetch-depth: 0  # нужна полная история, чтобы git diff base...head работал
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Create stub .env
+        # docker-compose.yml содержит `env_file: .env`, но в .gitignore
+        # реальный .env не попадает. Креды пробрасываем через `-e` ниже,
+        # поэтому compose'у достаточно пустого файла, чтобы не падать.
+        run: touch .env
+
       - name: Build backend image
         run: docker compose build backend
 
