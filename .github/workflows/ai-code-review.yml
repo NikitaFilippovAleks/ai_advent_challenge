@@ -1,0 +1,90 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    # На PR из форков GitHub не пробрасывает secrets, поэтому скипаем
+    # такие запуски — иначе job упадёт на пустых credentials.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    # Environment `ci` хранит секрет GIGACHAT_CREDENTIALS.
+    # Без этой строки Environment-секреты в job не пробрасываются.
+    environment: ci
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # нужна полная история, чтобы git diff base...head работал
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify GIGACHAT_CREDENTIALS secret is set
+        env:
+          GIGACHAT_CREDENTIALS: ${{ secrets.GIGACHAT_CREDENTIALS }}
+        run: |
+          if [ -z "$GIGACHAT_CREDENTIALS" ]; then
+            echo "::error::Secret GIGACHAT_CREDENTIALS не задан или пуст." \
+                 "Settings → Secrets and variables → Actions → Repository secrets."
+            exit 1
+          fi
+          echo "Secret задан, длина: ${#GIGACHAT_CREDENTIALS} символов"
+
+      - name: Create stub .env
+        # docker-compose.yml содержит `env_file: .env`, но в .gitignore
+        # реальный .env не попадает. Креды пробрасываем через `-e` ниже,
+        # поэтому compose'у достаточно пустого файла, чтобы не падать.
+        run: touch .env
+
+      - name: Build backend image
+        run: docker compose build backend
+
+      - name: Run AI code review CLI
+        env:
+          GIGACHAT_CREDENTIALS: ${{ secrets.GIGACHAT_CREDENTIALS }}
+          GIGACHAT_VERIFY_SSL: "false"
+        run: |
+          docker compose run --rm \
+            -e GIGACHAT_CREDENTIALS \
+            -e GIGACHAT_VERIFY_SSL \
+            backend python -m app.modules.code_review.cli \
+              --base "origin/${{ github.event.pull_request.base.ref }}" \
+              --head HEAD \
+              --output /repo/.review-output.md
+
+      - name: Post or update review comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          MARKER="<!-- ai-code-review -->"
+          # Собираем тело комментария: маркер + результат CLI
+          {
+            echo "$MARKER"
+            echo
+            cat .review-output.md
+          } > .review-comment.md
+
+          # Ищем существующий комментарий с маркером — чтобы не плодить
+          # новые при каждом synchronize, а обновлять старый.
+          EXISTING=$(
+            gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
+              --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" \
+            | head -n 1
+          )
+
+          if [ -n "$EXISTING" ]; then
+            echo "Обновляю существующий комментарий $EXISTING"
+            gh api -X PATCH "repos/$REPO/issues/comments/$EXISTING" \
+              --field "body=@.review-comment.md"
+          else
+            echo "Создаю новый комментарий"
+            gh pr comment "$PR_NUMBER" --body-file .review-comment.md
+          fi

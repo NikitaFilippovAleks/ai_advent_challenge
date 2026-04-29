@@ -41,6 +41,15 @@ npm run dev       # dev server (port 5173)
 npm run build     # TypeScript + Vite production сборка
 ```
 
+### AI Code Review (локальный запуск)
+```bash
+# Запускается как one-shot контейнер (БД и индекс пересоздаются с нуля)
+docker compose run --rm backend python -m app.modules.code_review.cli \
+  --base origin/master --head HEAD --output /repo/.review-output.md
+```
+
+В CI запускается автоматически на каждый PR — workflow `.github/workflows/ai-code-review.yml`. Требует GitHub secret `GIGACHAT_CREDENTIALS`.
+
 ## Архитектура
 
 **Бэкенд (Python 3.12, FastAPI) — доменно-модульная архитектура:**
@@ -67,6 +76,7 @@ npm run build     # TypeScript + Vite production сборка
 - `backend/app/modules/scheduler/` — планировщик задач с периодическим выполнением: APScheduler, сбор данных через MCPManager, генерация сводок через AgentRunner (service, repository, router, schemas, dependencies)
 - `backend/app/modules/indexing/` — индексация документов с эмбеддингами: 2 стратегии chunking (fixed_size, structural), генерация эмбеддингов через GigaChat SDK, семантический поиск по cosine similarity, реранкинг (threshold/keyword/LLM cross-encoder), query rewriting, сравнение стратегий и режимов реранкинга (router, service, repository, schemas, dependencies, strategies/). Модуль `rag_context.py` — общая функция построения RAG-системного промпта с двухэтапным поиском (эмбеддер по обогащённому запросу + keyword-rerank по оригинальному), используется и основным чатом, и playground.
 - `backend/app/modules/playground/` — stateless-чат с локальной моделью через LM Studio (OpenAI-совместимый API). Без БД, памяти, агента и стратегий контекста; поддерживает опциональный RAG (использует `rag_context.build_rag_context` и общий `IndexingService`). SSE-события: `delta`, `usage`, `done`, `error`, `sources`. Параметр `max_tokens` пробрасывается в `LMStudioProvider` (дефолт 2048), используется сравнительным режимом для оптимизации под узкий кейс.
+- `backend/app/modules/code_review/` — AI code review для PR'ов: CLI-точка входа `python -m app.modules.code_review.cli`, без HTTP-роутера. Собирает diff через `git diff base...head`, индексирует проектную документацию (`.claude/CLAUDE.md`, `.claude/rules/*`, `README.md`) в изолированную коллекцию `code_review` через `IndexingService`, делает RAG-поиск релевантных правил, single-shot вызов GigaChat и пишет Markdown-ревью со структурой `## Потенциальные баги`/`## Архитектурные проблемы`/`## Рекомендации` в файл, указанный через `--output`. Используется GitHub Action `.github/workflows/ai-code-review.yml`. Файлы: `cli.py`, `service.py` (CodeReviewService), `git_diff.py` (DiffPayload, обрезка >40K символов), `prompt.py`, `dependencies.py`.
 - `backend/mcp_servers/scheduler_server.py` — MCP-сервер планировщика (5 инструментов: create_scheduled_task, list_scheduled_tasks, get_task_results, get_task_summary, cancel_scheduled_task), отдельная БД scheduler.db
 - `backend/mcp_servers/research_server.py` — MCP-сервер для исследования файлов (3 инструмента: search_files, summarize_text, save_to_file), демонстрирует композицию инструментов в пайплайн
 - `backend/mcp_servers/system_server.py` — MCP-сервер системной информации (4 инструмента: current_datetime, disk_usage, list_processes, env_info)
