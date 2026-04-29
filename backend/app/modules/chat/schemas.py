@@ -23,7 +23,11 @@ class ChatRequest(BaseModel):
     # /help-режим: использовать RAG по project_docs + инжектить git-ветку
     # в system prompt, не отключая MCP-tools (агент + RAG работают вместе).
     help_mode: bool = False
-    # Логическая коллекция RAG (project_docs для /help, default для остального).
+    # Режим поддержки: одновременно RAG (FAQ) + MCP-tools (тикеты/пользователи).
+    # Аналог help_mode, но без git-аддона и без жёсткой привязки к project_docs.
+    support_mode: bool = False
+    # Логическая коллекция RAG (project_docs для /help, support_faq для поддержки,
+    # default для остального).
     rag_collection: str | None = None
     # Дополнение к system prompt от пресета слеш-команды на фронте.
     system_prompt_addon: str | None = None

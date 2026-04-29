@@ -46,7 +46,9 @@ export interface ChatRequest {
   rag_score_threshold?: number;
   // /help-режим: RAG по project_docs + git-ветка в system prompt + tools.
   help_mode?: boolean;
-  // Логическая коллекция RAG (project_docs / default).
+  // Режим поддержки: RAG по support_faq + MCP-tools тикетов работают вместе.
+  support_mode?: boolean;
+  // Логическая коллекция RAG (project_docs / support_faq / default).
   rag_collection?: string;
   // Дополнение к system prompt от пресета слеш-команды.
   system_prompt_addon?: string;

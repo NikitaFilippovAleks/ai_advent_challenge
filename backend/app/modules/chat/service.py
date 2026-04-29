@@ -175,6 +175,31 @@ class ChatService:
             return f"{base}\n\nТекущий git-контекст (вывод `git branch -a`):\n{git_text}"
         return base
 
+    # System-памятка для режима поддержки: инжектим перед сообщениями
+    # пользователя, чтобы LLM комбинировал RAG (FAQ) и MCP-инструменты.
+    _SUPPORT_SYSTEM_PROMPT_ADDON = (
+        "Ты — ассистент службы поддержки пользователей. Твои источники правды:\n"
+        "1. RAG-контекст из FAQ (вставлен выше) — общие вопросы по продукту, "
+        "тарифам, авторизации, оплате, восстановлению пароля.\n"
+        "2. MCP-инструменты сервера `support`:\n"
+        "   - get_ticket(ticket_id) — данные тикета (статус, описание, история, метаданные);\n"
+        "   - get_user(user_id) — карточка пользователя (план, email);\n"
+        "   - list_user_tickets(user_id, status?) — все тикеты пользователя;\n"
+        "   - add_ticket_note(ticket_id, note) — внутренняя заметка по тикету.\n"
+        "\n"
+        "Правила работы:\n"
+        "- Если в запросе указан ID тикета (формат T-NNNN) — ОБЯЗАТЕЛЬНО вызови "
+        "  get_ticket до ответа. Используй данные из тикета (продукт, шаги "
+        "  воспроизведения, статус) при формулировке решения.\n"
+        "- Если указан user_id — вызови get_user или list_user_tickets, чтобы "
+        "  понять тариф и активные обращения пользователя.\n"
+        "- Для общих вопросов о продукте опирайся на FAQ-контекст из RAG.\n"
+        "- Если ни FAQ, ни данные тикета не дают ответа — задай уточняющий "
+        "  вопрос вместо того, чтобы фантазировать.\n"
+        "- В конце ответа кратко перечисли источники: «по тикету T-…», "
+        "  «по FAQ файл …», «по карточке пользователя …»."
+    )
+
     async def _fetch_git_branches_text(self) -> str | None:
         """Возвращает текст вывода git_branches через MCP или None при сбое."""
         if not self._mcp:
@@ -341,9 +366,10 @@ class ChatService:
                     score_threshold=request.rag_score_threshold,
                     history=messages,
                     collection=request.rag_collection,
-                    # /help — мягкий режим: документация как подсказка,
-                    # модель может дополнить общими знаниями и использовать tools.
-                    strict=not request.help_mode,
+                    # /help и режим поддержки — мягкий режим: документация
+                    # как подсказка, модель может дополнить общими знаниями
+                    # и использовать tools (тикеты/пользователи).
+                    strict=not (request.help_mode or request.support_mode),
                 )
                 if rag_text:
                     messages.insert(
@@ -358,6 +384,14 @@ class ChatService:
                 if help_addon:
                     sys_count = len([m for m in messages if m["role"] == "system"])
                     messages.insert(sys_count, {"role": "system", "content": help_addon})
+            # Режим поддержки — инжектим памятку про MCP-инструменты сервера
+            # `support` и приоритеты источников (FAQ → тикет → уточнение).
+            if request.support_mode:
+                sys_count = len([m for m in messages if m["role"] == "system"])
+                messages.insert(
+                    sys_count,
+                    {"role": "system", "content": self._SUPPORT_SYSTEM_PROMPT_ADDON},
+                )
             # Память задачи — goal/constraints/decisions + недавние наблюдения.
             # Инжектим всегда, независимо от стратегии, чтобы в длинных
             # диалогах ассистент не терял цель и зафиксированные ограничения.
@@ -381,10 +415,13 @@ class ChatService:
 
         # При включённом RAG — обходим AgentRunner, чтобы LLM не дёргала
         # MCP-инструменты (search_files и т.п.) вместо ответа из переданного
-        # RAG-контекста. Исключение — help_mode: для /help нужны и RAG, и
-        # tools одновременно (RAG как статический контекст, tools — для
-        # follow-up вопросов вроде «покажи последние коммиты»).
-        use_agent = self._agent and (not request.use_rag or request.help_mode)
+        # RAG-контекста. Исключения — help_mode и support_mode: для /help
+        # и режима поддержки нужны и RAG, и tools одновременно (RAG как
+        # статический контекст, tools — для follow-up вопросов вроде
+        # «покажи последние коммиты» или «открой тикет T-1042»).
+        use_agent = self._agent and (
+            not request.use_rag or request.help_mode or request.support_mode
+        )
         if use_agent:
             result = await self._agent.run(
                 messages, model=request.model, temperature=request.temperature
@@ -488,8 +525,8 @@ class ChatService:
                         score_threshold=request.rag_score_threshold,
                         history=messages,
                         collection=request.rag_collection,
-                        # См. комментарий выше: help_mode → мягкий режим.
-                        strict=not request.help_mode,
+                        # См. комментарий выше: help_mode и support_mode → мягкий режим.
+                        strict=not (request.help_mode or request.support_mode),
                     )
                     if rag_text:
                         messages.insert(
@@ -505,6 +542,13 @@ class ChatService:
                         messages.insert(
                             sys_count, {"role": "system", "content": help_addon}
                         )
+                # Режим поддержки — памятка о MCP-инструментах сервера `support`.
+                if request.support_mode:
+                    sys_count = len([m for m in messages if m["role"] == "system"])
+                    messages.insert(
+                        sys_count,
+                        {"role": "system", "content": self._SUPPORT_SYSTEM_PROMPT_ADDON},
+                    )
                 # Память задачи — goal/constraints/decisions + недавние наблюдения.
                 # Инжектим всегда, чтобы ассистент не терял цель в длинных диалогах.
                 task_memory_text = await self._build_task_memory_text(
@@ -538,9 +582,12 @@ class ChatService:
                 yield f"event: sources\ndata: {sources_data}\n\n"
 
             # При включённом RAG — обходим AgentRunner, чтобы LLM не дёргала
-            # MCP-инструменты вместо ответа из RAG-контекста. Исключение —
-            # help_mode: для /help RAG и tools работают вместе.
-            use_agent_stream = self._agent and (not request.use_rag or request.help_mode)
+            # MCP-инструменты вместо ответа из RAG-контекста. Исключения —
+            # help_mode и support_mode: для /help и режима поддержки RAG
+            # и tools работают вместе.
+            use_agent_stream = self._agent and (
+                not request.use_rag or request.help_mode or request.support_mode
+            )
             stream_source = (
                 self._agent.run_stream(messages, model=request.model, temperature=request.temperature)
                 if use_agent_stream

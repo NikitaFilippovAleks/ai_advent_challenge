@@ -81,6 +81,8 @@ docker compose run --rm backend python -m app.modules.code_review.cli \
 - `backend/mcp_servers/research_server.py` — MCP-сервер для исследования файлов (3 инструмента: search_files, summarize_text, save_to_file), демонстрирует композицию инструментов в пайплайн
 - `backend/mcp_servers/system_server.py` — MCP-сервер системной информации (4 инструмента: current_datetime, disk_usage, list_processes, env_info)
 - `backend/mcp_servers/notes_server.py` — MCP-сервер заметок (5 инструментов: create_note, get_note, list_notes, search_notes, delete_note), хранение в /app/data/notes.json
+- `backend/mcp_servers/support_server.py` — MCP-сервер поддержки пользователей (4 инструмента: get_user, list_user_tickets, get_ticket, add_ticket_note), хранение в /app/data/support_tickets.json. Используется вместе с RAG-коллекцией `support_faq` (документы из `backend/data/support_faq/*.md`, индексируются скриптом `backend/scripts/seed_support_faq.py`) в режиме `support_mode` чата
+- `backend/scripts/seed_support_faq.py` — seed-скрипт индексации FAQ-документов поддержки в коллекцию `support_faq` (стратегия structural, replace_collection=True). Запуск: `docker compose exec backend bash -c "cd /app && PYTHONPATH=/app python scripts/seed_support_faq.py"`
 
 **Фронтенд (React 19, TypeScript, Vite):**
 - `frontend/src/App.tsx` — корневой компонент, один ChatWindow на весь экран
@@ -113,7 +115,9 @@ docker compose run --rm backend python -m app.modules.code_review.cli \
 
 **RAG:** Флаг `use_rag: true` в ChatRequest активирует поиск по индексированным документам. Параметры `rag_rerank_mode` (none/threshold/keyword/llm_cross_encoder) и `rag_score_threshold` управляют постобработкой результатов. Найденные чанки вставляются в system prompt, SSE-событие `sources` (с original_score и rerank_score) отправляется перед генерацией текста. Поддерживается query rewriting через LLM и сравнение режимов реранкинга.
 
-**MCP-серверы:** Конфигурация в `backend/data/mcp_servers.json`. При старте приложения MCPManager автоматически подключает серверы с `enabled: true`. Агент использует инструменты через GigaChat function calling. Зарегистрированные серверы: git (4 инструмента), scheduler (5), research (3), system (4), notes (5) — итого 21 инструмент.
+**MCP-серверы:** Конфигурация в `backend/data/mcp_servers.json`. При старте приложения MCPManager автоматически подключает серверы с `enabled: true`. Агент использует инструменты через GigaChat function calling. Зарегистрированные серверы: git (4 инструмента), scheduler (5), research (3), system (4), notes (5), support (4) — итого 25 инструментов.
+
+**Режим поддержки (`support_mode`):** комбинирует RAG по коллекции `support_faq` и MCP-инструменты сервера `support` (тикеты, пользователи). Включается чекбоксом «Поддержка» в шапке чата — на бэкенде это выставляет `use_rag=true`, `rag_collection="support_faq"`, `support_mode=true`. ChatService инжектит специальную system-памятку с описанием инструментов и приоритетов источников (FAQ → данные тикета → уточняющий вопрос). Логика `use_agent` явно разрешает работу AgentRunner вместе с RAG, когда активны `help_mode` или `support_mode`.
 
 **Порты:** Backend 8000, Frontend 5173
 
@@ -121,11 +125,11 @@ docker compose run --rm backend python -m app.modules.code_review.cli \
 
 ```
 POST /api/chat
-Body: { messages: [{ role, content }], model?, temperature?, use_rag?, rag_rerank_mode?, rag_score_threshold? }
+Body: { messages: [{ role, content }], model?, temperature?, use_rag?, rag_rerank_mode?, rag_score_threshold?, help_mode?, support_mode?, rag_collection?, system_prompt_addon? }
 Response: { content: string, usage?: { prompt_tokens, completion_tokens, total_tokens } }
 
 POST /api/chat/stream (SSE)
-Body: { messages: [{ role, content }], model?, temperature?, use_rag? }
+Body: { messages: [{ role, content }], model?, temperature?, use_rag?, help_mode?, support_mode?, rag_collection? }
 Events: sources → { sources: [...] }, delta → { content, type }, usage → { prompt_tokens, ... }, done → {}, error → { message }
 
 GET /api/models

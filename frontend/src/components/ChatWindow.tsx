@@ -51,6 +51,9 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
   const [useRag, setUseRag] = useState(false);
   const [ragRerankMode, setRagRerankMode] = useState("keyword");
   const [ragScoreThreshold, setRagScoreThreshold] = useState(0.1);
+  // Режим поддержки: RAG по коллекции support_faq + MCP-инструменты тикетов.
+  // При включении перекрывает RAG-настройки выше.
+  const [supportMode, setSupportMode] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Буфер для плавного стриминга: копим текст в ref, обновляем стейт через rAF
@@ -164,16 +167,30 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
             : { role: m.role, content: m.content },
         );
 
-    // Базовые параметры RAG-режима из тогглов в шапке.
-    const baseRequest = {
-      messages: requestMessages,
-      model: selectedModel,
-      temperature,
-      conversation_id: conversationId || undefined,
-      use_rag: useRag || undefined,
-      rag_rerank_mode: useRag ? ragRerankMode : undefined,
-      rag_score_threshold: useRag ? ragScoreThreshold : undefined,
-    };
+    // Режим поддержки имеет приоритет над ручными RAG-тогглами:
+    // принудительно включает RAG по коллекции support_faq и подключает
+    // MCP-инструменты сервера `support` через support_mode на бэкенде.
+    const baseRequest = supportMode
+      ? {
+          messages: requestMessages,
+          model: selectedModel,
+          temperature,
+          conversation_id: conversationId || undefined,
+          use_rag: true,
+          rag_rerank_mode: "keyword",
+          rag_score_threshold: 0.1,
+          rag_collection: "support_faq",
+          support_mode: true,
+        }
+      : {
+          messages: requestMessages,
+          model: selectedModel,
+          temperature,
+          conversation_id: conversationId || undefined,
+          use_rag: useRag || undefined,
+          rag_rerank_mode: useRag ? ragRerankMode : undefined,
+          rag_score_threshold: useRag ? ragScoreThreshold : undefined,
+        };
     // Слеш-команда имеет приоритет: её overrides перекрывают базовые
     // тогглы (например, /help принудительно включает RAG по project_docs,
     // независимо от состояния тоггла RAG в шапке).
@@ -425,14 +442,32 @@ function ChatWindow({ models, conversationId, onConversationUpdate, profilesVers
           >
             {indexingPanelOpen ? "▶" : "◀"} Индекс
           </button>
-          {/* Toggle RAG */}
+          {/* Toggle RAG (отключён, когда включён режим поддержки — он сам управляет RAG) */}
           <button
             className={`memory-toggle-btn${useRag ? " active" : ""}`}
             onClick={() => setUseRag((prev) => !prev)}
-            title={useRag ? "Выключить RAG" : "Включить RAG"}
-            style={{ marginRight: "4px" }}
+            title={
+              supportMode
+                ? "Режим поддержки уже использует RAG (FAQ)"
+                : useRag ? "Выключить RAG" : "Включить RAG"
+            }
+            disabled={supportMode}
+            style={{ marginRight: "4px", opacity: supportMode ? 0.5 : 1 }}
           >
             RAG {useRag ? "✓" : ""}
+          </button>
+          {/* Toggle режима поддержки: RAG по support_faq + MCP-тикеты */}
+          <button
+            className={`memory-toggle-btn${supportMode ? " active" : ""}`}
+            onClick={() => setSupportMode((prev) => !prev)}
+            title={
+              supportMode
+                ? "Выключить режим поддержки"
+                : "Включить режим поддержки (FAQ + тикеты пользователей)"
+            }
+            style={{ marginRight: "4px" }}
+          >
+            Поддержка {supportMode ? "✓" : ""}
           </button>
           {/* Настройки реранкинга RAG (видны только при включённом RAG) */}
           {useRag && (
